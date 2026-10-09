@@ -1,0 +1,12 @@
+# Owner research must not be pushed or served as public assets.
+/private/
+.env
+.env.*
+!.env.example
+__pycache__/
+
+# Local tooling and test output
+node_modules/
+.venv/
+test-results/
+playwright-report/
