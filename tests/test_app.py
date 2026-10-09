@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 from http.server import ThreadingHTTPServer
 
-from app import agent, catalog
+from app import agent, catalog, suppliers
 from catalog_fixture import write_fixture
 from app.server import Handler, HISTORY
 
@@ -110,6 +110,12 @@ class HTTPTests(unittest.TestCase):
         cls.server.server_close()
         cls.thread.join()
 
+    def setUp(self):
+        self.directory=tempfile.TemporaryDirectory(dir=catalog.PRIVATE)
+        self.db_patch=patch.object(suppliers,'DATABASE',Path(self.directory.name)/'workflow.sqlite3')
+        self.db_patch.start();suppliers.initialize()
+        self.addCleanup(self.directory.cleanup);self.addCleanup(self.db_patch.stop)
+
     def request(self, path, body=None, token=None, origin=None):
         headers = {'Content-Type':'application/json'}
         if token: headers['Authorization'] = 'Bearer ' + token
@@ -131,12 +137,13 @@ class HTTPTests(unittest.TestCase):
 
     @patch.dict(os.environ, {'APP_ACCESS_TOKEN':'test-token'})
     def test_access_and_origin(self):
-        self.assertEqual(self.request('/api/agent/status')[0], 401)
+        self.assertEqual(self.request('/api/agent/status')[0], 200)
         self.assertEqual(self.request('/api/agent/status', token='test-token')[0], 200)
         self.assertEqual(self.request('/api/catalog/search', {'query':'tree'}, token='test-token', origin='https://evil.example')[0], 403)
 
-    def test_matching_requires_owner_access(self):
-        self.assertEqual(self.request('/api/catalog/match', {'product':'tree'})[0], 401)
+    def test_matching_is_public_but_raw_search_is_private(self):
+        self.assertEqual(self.request('/api/catalog/match', {'product':'tree'})[0], 200)
+        self.assertEqual(self.request('/api/catalog/search', {'query':'tree'})[0], 401)
 
     @patch.dict(os.environ, {'APP_ACCESS_TOKEN':'test-token'})
     def test_matching_incomplete_brief(self):

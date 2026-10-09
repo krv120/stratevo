@@ -66,15 +66,16 @@ if(byId('admin-workspace')){
   byId('send-mail').onclick=async()=>{const button=byId('send-mail');button.disabled=true;try{const result=await request('/api/admin/send-mail',{});byId('admin-status').textContent=`${result.sent} sent; ${result.failed} failed. Refresh or check the server configuration if delivery fails.`;await loadApplications();}catch(error){byId('admin-status').textContent=error.message;}finally{button.disabled=false;}};
 }
 if(byId('consume-link')){
-  let token=null;
+  let token=null, marketToken=false;
   function readEmailLink(){
-    token=new URLSearchParams(location.hash.slice(1)).get('token');
+    const params=new URLSearchParams(location.hash.slice(1));
+    marketToken=params.has('market_token');token=params.get(marketToken?'market_token':'token');
     history.replaceState(null,'',location.pathname);
     byId('consume-link').disabled=!token; byId('portal-link').hidden=true;
     byId('consume-status').textContent=token?'':'No email token found. Open the complete link from your email or request a new one.';
   }
   readEmailLink(); window.addEventListener('hashchange',readEmailLink);
-  byId('consume-link').onclick=async()=>{byId('consume-link').disabled=true;try{const result=await request('/api/supplier/consume',{token});byId('consume-status').textContent=result.message;if(result.status==='approved'){byId('portal-link').hidden=false;location.replace('/portal');}}catch(error){byId('consume-status').textContent=error.message;}};
+  byId('consume-link').onclick=async()=>{byId('consume-link').disabled=true;try{const result=await request(marketToken?'/api/marketplace/consume':'/api/supplier/consume',{token});byId('consume-status').textContent=result.message;if(result.status==='active'){byId('portal-link').href='/supplier/account';byId('portal-link').hidden=false;location.replace('/supplier/account');}else if(result.status==='approved'){byId('portal-link').hidden=false;location.replace('/portal');}}catch(error){byId('consume-status').textContent=error.message;}};
 }
 if(byId('portal-content')){
   const profileId=new URLSearchParams(location.search).get('application');

@@ -1,11 +1,11 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let access = '', history = [], busy = false;
+let history = [], busy = false;
 async function api(path, body) {
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(),60000);
   try {
-    const response = await fetch(path, {signal:controller.signal, method: body ? 'POST' : 'GET', credentials:'same-origin', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${access}`}, ...(body ? {body: JSON.stringify(body)} : {})});
+    const response = await fetch(path, {signal:controller.signal, method: body ? 'POST' : 'GET', credentials:'same-origin', headers: {'Content-Type': 'application/json'}, ...(body ? {body: JSON.stringify(body)} : {})});
     if(!(response.headers.get('content-type')||'').includes('application/json')) throw new Error('The server did not return an API response. Check this deployment’s routing or try again.');
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed');
@@ -23,13 +23,11 @@ function cards(rows) {
   if (!rows.length) $('results').append(text('p', 'No matching research found. Try fewer English keywords. This does not mean no suppliers exist.', 'empty'));
   rows.forEach(row => { const card = document.createElement('article'); card.className = 'result'; card.append(text('span', row.reference, 'ref'), text('h3', row.description)); const p = row.advertised_price, m = row.advertised_moq; card.append(text('p', `Advertised: ${p?.display || 'unknown'} · ${p?.currency_code || 'currency unconfirmed'}`), text('p', `MOQ: ${m?.quantity ?? 'unknown'} ${m?.unit || ''} · Variant unconfirmed`), text('small', 'Unverified listing • not a quotation')); if (row.moq_match) { card.append(text('p', `Category: ${row.matrix?.category || 'Unclassified'} / ${row.reference}`), text('p', `Location: ${row.matrix?.location || 'Unknown'} · MOQ Match: ${row.moq_match}`), text('p', `Lead time: ${row.matrix?.lead_time_days ?? 'Unknown'} · Verified certifications: ${row.matrix?.certifications_verified?.join(', ') || 'None established'} · Target price: ${row.matrix?.target_price ?? 'Not specified'}`), text('p', `Why they fit: ${row.why_fit}`)); } $('results').append(card); });
 }
-$('connect').onclick = async () => {access = $('token').value.trim(); $('token').value = ''; try {const status = await api('/api/agent/status'); $('status').textContent = `${status.research_rows} research rows · ${status.provider_configured ? 'Provider configured (connection not yet tested)' : 'Catalog only — general AI is not connected'}`;} catch (e) {access = ''; $('status').textContent = e.message;} };
-$('search').onsubmit = async e => {e.preventDefault(); const button = e.target.querySelector('button'); button.disabled = true; try {cards((await api('/api/catalog/search', {query: $('query').value})).results);} catch (err) {$('results').replaceChildren(text('p', err.message, 'error'));} finally {button.disabled = false;}};
 $('chat').onsubmit = async e => {e.preventDefault(); if (busy) return; const value = $('question').value.trim(); if (!value) return; busy = true; $('chat-progress').textContent='Waiting for the AI service…'; $('messages').setAttribute('aria-busy','true'); $('send').disabled = $('clear').disabled = true; message('user', value); $('question').value = ''; const context = history.slice(-16); while(context.length && (context.reduce((n,m)=>n+m.content.length,0)+value.length>48000)) context.splice(0,2); const pending = [...context, {role:'user', content:value}]; try {const result = await api('/api/chat', {messages:pending}); message('assistant', result.message); if (result.mode === 'model') history = [...pending, {role:'assistant', content:result.message}]; if (result.qualification || result.references.length) cards(result.references);} catch (err) {message('assistant', err.message); $('question').value = value;} finally {busy = false; $('chat-progress').textContent=''; $('messages').setAttribute('aria-busy','false'); $('send').disabled = $('clear').disabled = false; $('question').focus();}};
 $('clear').onclick = () => {history = []; $('results').replaceChildren(text('p','Previous research results cleared.','empty')); $('match-status').textContent=''; $('messages').replaceChildren(text('p', 'New conversation. Previous messages have been cleared from this page.', 'empty'));};
 
-// Manager sessions can also unlock research; no second token is needed.
-api('/api/agent/status').then(status => { $('status').textContent = `${status.research_rows} research rows · ${status.provider_configured ? 'Provider configured (connection not yet tested)' : 'Catalog only — general AI is not connected'}`; }).catch(() => {});
+// Public readiness only; never expose credentials or private research counts.
+api('/api/agent/status').then(status => { $('status').textContent = status.provider_configured ? 'AI configuration available. Send a question to start.' : 'AI conversation is not connected here yet. Marketplace browsing and product matching are available.'; }).catch(() => {$('status').textContent='Could not check AI availability. You can retry by sending a question.';});
 
 $('match-form').onsubmit = async e => {
   e.preventDefault(); const button = e.target.querySelector('button'); button.disabled = true;
@@ -38,7 +36,7 @@ $('match-form').onsubmit = async e => {
   if ($('match-lead').value) requirement.lead_time_days = Number($('match-lead').value);
   if ($('match-price').value) { requirement.target_price = Number($('match-price').value); requirement.currency = $('match-currency').value.trim().toUpperCase(); }
   try {
-    const result = await api($('research-mode').value === 'online' ? '/api/catalog/discover' : '/api/catalog/match', requirement);
+    const result = await api('/api/catalog/match', requirement);
     $('match-status').textContent = result.message + (result.evidence_gaps?.length ? ' Evidence gaps: ' + result.evidence_gaps.join('; ') : '');
     cards(result.matches);
     if (!result.matches.length) $('results').replaceChildren(text('p', result.message, 'empty'));

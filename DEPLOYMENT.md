@@ -13,6 +13,7 @@ Example using a securely configured environment (never put credentials in comman
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_private_platform.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_private_discovery.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_public_ai_marketplace.sql
 # Optional: import only your actual reviewed private file, when available.
 # python3 -m app.catalog private/reviewed-research.json
 ```
@@ -47,7 +48,7 @@ The entry point and config have not been deployed to Vercel here. Verify platfor
 
 Configure an external scheduler/worker to run `python3 -m app.suppliers send-mail` every minute with the same environment and database. This is a bounded batch sender, not a persistent server. On a serverless-only deployment, provision a proper authenticated scheduled queue consumer before go-live; no unauthenticated queue endpoint is provided.
 
-The manager's “Send next queued email” control is a manual fallback. Queued emails are not sent automatically by an application request. The UI distinguishes SMTP configuration from delivery.
+The manager's “Send next queued email” control is a manual fallback. New marketplace registration/access requests attempt their own email synchronously when SMTP is configured; failures remain queued for the retry worker. Legacy messages still rely on the worker. The UI distinguishes SMTP configuration from delivery.
 
 Verify actual inbox delivery, resend behavior, link expiry and one-time use. Failed jobs use a short lease and stop after five attempts. Monitor and handle exhausted or expired jobs; do not blindly resend stale links. SMTP acceptance is not proof of inbox receipt.
 
@@ -55,11 +56,17 @@ Verify actual inbox delivery, resend behavior, link expiry and one-time use. Fai
 
 - Obtain the real operator's privacy/contact/retention terms without fabricating or prematurely publishing identity details.
 - Add license malware scanning/quarantine, retention/deletion tooling and restricted backups. Current PDFs are stored as base64 in the private database (2 MB each), not public object storage.
-- Add edge abuse protection (trusted per-client rate limits/bot defense), storage quotas and monitoring. Current durable workflow rate limits are global and conservative; AI's rate limiter is process-local.
-- Review admin password recovery, session revocation, MFA, multi-manager audit identity and supplier suspension requirements. Current workflow deliberately has only final approval/rejection, not a full identity-management console.
+- Add edge abuse protection (trusted per-client rate limits/bot defense), storage quotas and monitoring. Current durable workflow rate limits are global and conservative; public AI additionally uses durable daily request reservations and concurrency leases. These are not exact monetary caps.
+- Review admin password recovery, session revocation, MFA, multi-manager audit identity and supplier suspension requirements. New Marketplace accounts publish automatically after email confirmation; post-publication listing removal is available, but a full suspension/identity-management console is not.
 - Verify hosted anonymous/authenticated role denial, private document access, CSRF origin checks, Secure cookie behavior and no source/bundle exposure.
 - Confirm fresh AI credentials, provider data-retention terms, Greek/English conversation quality, prompt injection resistance, cost limits and graceful errors. Selected research text is untrusted evidence; no order/payment tools exist.
-- Test email delivery and complete application/verification/approval/rejection/login/logout flows on the real deployment and physical mobile devices.
+- Test email delivery and complete registration/verification/automatic-publication/withdrawal/moderation/login/logout flows on the real deployment and physical mobile devices.
 - Back up the current site and database; only then promote and attach the production domain.
 
 No payment/order marketplace or guarantee of supplier certification is part of this release.
+
+## Public Marketplace revision
+
+Read `PUBLIC-MARKETPLACE-UPDATE.md`. Migration 003 is required for both Marketplace and anonymous AI limits. No migrations run inside Vercel requests. Install Pillow via `requirements.txt`. Maximum new-registration JSON body is 3.6 MB (2 MB private PDF plus 500 KB photo, base64-encoded); do not increase file limits without checking hosting payload/memory limits. Images remain in the private database with public-only retrieval checks. Configure storage monitoring, pending-account cleanup and legal retention policy; cleanup is not automated here.
+
+Apply public AI quotas and provider-side spend limits before promotion. Raw search/discovery remains owner-only. Keep the server's real provider keys private; public access never requires publishing a token.

@@ -6,7 +6,7 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = ['REFERENCE-RESTORATION.md','START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
+ROOT_FILES = ['PUBLIC-MARKETPLACE-UPDATE.md','REFERENCE-RESTORATION.md','START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
               'AI-EVALUATION.md','KEY-SETUP.md','DEPLOYMENT.md','SOURCING-AI-NOTES.md',
               'LIVE-SITE-AUDIT.md','.env.example','.gitignore','.vercelignore',
               'requirements.txt','vercel.json']

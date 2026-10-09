@@ -13,12 +13,12 @@ class ReferenceUpdateTests(unittest.TestCase):
         for phrase in ['find a stronger route','from brief to supply.','NON-CONTRACTING PREVIEW','THE BRIEF','Ask STRATEVO','/reference.css','/visual.js']:
             self.assertIn(phrase,home)
         self.assertNotIn('Find the right fit.',home)
-        self.assertNotIn('href="/marketplace"',home)
+        self.assertIn('href="/marketplace"',home)
 
     def test_supplier_sections_and_success_are_present(self):
         html=Path('web/supplier.html').read_text()
-        self.assertEqual(html.count('class="application-section"'),3)
-        for value in ['id="application-success"','id="license-file-status"','WhatsApp or WeChat','not public or sent to AI','id="application-status"']:
+        self.assertEqual(html.count('<fieldset>'),2)
+        for value in ['id="market-register-success"','id="market-license"','WhatsApp','not published or sent to the AI','id="market-register-status"','no manager approval']:
             self.assertIn(value,html)
 
     @patch.dict(os.environ,{'AI_API_KEY':'TEST ONLY','AI_MODEL':'gemini-2.5-flash','AI_BASE_URL':'https://generativelanguage.googleapis.com/v1beta/openai','AI_REASONING_EFFORT':''})

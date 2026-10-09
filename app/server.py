@@ -8,11 +8,11 @@ from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from app.agent import configured, reply, ProviderError
 from app.catalog import count, search, owner_records
-from app import suppliers, connections
+from app import suppliers, connections, marketplace, public_ai
 from app.matching import match
 from app.discovery import discover, configured as discovery_configured, owner_evidence
 
@@ -33,7 +33,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', (headers or {}).get('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"))
+        self.send_header('Content-Security-Policy', (headers or {}).get('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"))
         for key, value in (headers or {}).items():
             if key.lower() == 'content-security-policy': continue
             self.send_header(key, value)
@@ -55,15 +55,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = urlparse(self.path).path
+        if route.startswith('/api/marketplace/') or route == '/api/marketplace':
+            return self.market_get(route)
         if route.startswith('/api/admin/') or route.startswith('/api/supplier/'):
             return self.workflow_get(route)
         if route == '/api/health':
             return self.send(200, {'ok': True, 'application': 'stratevo', 'deployment': 'development' if not os.environ.get('DATABASE_URL') else 'configured'})
         if route == '/api/agent/status':
-            if not self.authorized():
-                return self.send(401, {'error': 'Owner access required'})
-            return self.send(200, {'provider_configured': connections.status()['ai_configured'], 'online_discovery_configured': discovery_configured(), 'research_rows': count(), 'production_connected': False})
+            try:
+                ready = public_ai.enabled() and configured()
+            except (ValueError, TypeError):
+                ready = False
+            return self.send(200, {'provider_configured':ready, 'public_access':True, 'online_discovery_configured':False})
         files = {'/fonts/inter-latin.woff2': ('fonts/inter-latin.woff2','font/woff2'), '/fonts/inter-greek.woff2': ('fonts/inter-greek.woff2','font/woff2'), '/visual.js': ('visual.js','application/javascript'), '/reference.css': ('reference.css','text/css'), '/': ('home.html', 'text/html; charset=utf-8'), '/supplier': ('supplier.html','text/html; charset=utf-8'), '/admin': ('admin.html','text/html; charset=utf-8'), '/access': ('access.html','text/html; charset=utf-8'), '/portal': ('portal.html','text/html; charset=utf-8'), '/site.js': ('site.js','application/javascript'), '/site.css': ('site.css','text/css'), '/ai': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}
+        files.update({'/marketplace':('marketplace.html','text/html; charset=utf-8'), '/supplier/account':('supplier-account.html','text/html; charset=utf-8'), '/market.js':('market.js','application/javascript'), '/market.css':('market.css','text/css'), '/dialogs.js':('dialogs.js','application/javascript')})
         if route not in files:
             return self.send(404, {'error': 'Not found'})
         name, mime = files[route]
@@ -76,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get('Origin')
         if not origin:
-            return True  # Non-browser integrations still require authentication.
+            return True  # Non-browser clients remain subject to endpoint authentication or public quotas.
         try:
             parsed = urlparse(origin)
             if parsed.scheme not in ('https','http') or parsed.netloc != self.headers.get('Host') or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
@@ -90,23 +95,33 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
+        if route.startswith('/api/marketplace/'):
+            return self.market_post(route)
         if route.startswith('/api/admin/') or route.startswith('/api/supplier/'):
             return self.workflow_post(route)
         if route not in ('/api/chat', '/api/catalog/search', '/api/catalog/match', '/api/catalog/discover'):
             return self.send(404, {'error': 'Not found'})
-        if not self.authorized():
-            return self.send(401, {'error': 'Owner access required; enter your preview token'})
+        public_route = route in ('/api/chat', '/api/catalog/match')
+        if not public_route and not self.authorized():
+            return self.send(401, {'error': 'Private research access required'})
         # No CORS grant; reject cross-origin browser requests even with a token.
         if not self.origin_allowed():
             return self.send(403, {'error': 'Origin not allowed'})
+        if public_route:
+            try:
+                public_ai.throttle(self.client_address[0])
+            except suppliers.WorkflowError as error:
+                return self.send(error.status, {'error':str(error)}, headers={'Retry-After':'60'})
+            except Exception:
+                return self.send(503, {'error':'Usage controls are unavailable. Please try again later.'})
         with LOCK:
             bucket = HISTORY['owner']
             now = time.monotonic()
             while bucket and now - bucket[0] > 60:
                 bucket.popleft()
-            if len(bucket) >= 20:
+            if not public_route and len(bucket) >= 20:
                 return self.send(429, {'error': 'Too many requests; wait one minute'})
-            bucket.append(now)
+            if not public_route: bucket.append(now)
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 100000:
@@ -134,12 +149,73 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self.send(503, {'error':'Research service is temporarily unavailable. Please retry later.'})
         try:
-            return self.send(200, reply(messages))
+            if not public_ai.enabled():
+                return self.send(503, {'error':'AI conversation is temporarily paused. You can still browse the Marketplace or book a sourcing call.'})
+            if not configured():
+                return self.send(503, {'error':'AI conversation is not connected on this deployment yet. Browse the Marketplace or book a sourcing call.', 'code':'not_configured'})
+            with public_ai.reserve():
+                result = reply(messages, public=True)
+            return self.send(200, result)
+        except suppliers.WorkflowError as error:
+            return self.send(error.status, {'error':str(error)}, headers={'Retry-After':'60'} if error.status == 429 else None)
         except ProviderError as error:
             return self.send(502, {'error':str(error), 'code':error.code})
         except Exception:
-            return self.send(502, {'error': 'The AI provider could not answer. Try again or use catalog search. No order was placed.'})
+            return self.send(502, {'error': 'The AI provider could not answer. Try again, browse the Marketplace or book a sourcing call. No order was placed.'})
 
+
+    def market_get(self, route):
+        try:
+            if route == '/api/marketplace':
+                query=parse_qs(urlparse(self.path).query)
+                result=marketplace.listings(query.get('q',[''])[0],query.get('category',[''])[0],query.get('offset',['0'])[0])
+                return self.send(200,result)
+            if route == '/api/marketplace/me':
+                return self.send(200,marketplace.mine(self.session_token()))
+            if route.startswith('/api/marketplace/image/'):
+                return self.send(200,marketplace.photo(route.rsplit('/',1)[-1]),'image/jpeg',{'Content-Security-Policy':"sandbox; default-src 'none'"})
+            return self.send(404,{'error':'Not found'})
+        except suppliers.WorkflowError as error:
+            return self.send(error.status,{'error':str(error)})
+        except Exception:
+            return self.send(503,{'error':'Marketplace is temporarily unavailable. Please try again later.'})
+
+    def market_post(self, route):
+        allowed=('/api/marketplace/register','/api/marketplace/request-access','/api/marketplace/consume','/api/marketplace/products','/api/marketplace/withdraw','/api/marketplace/logout')
+        if route not in allowed:return self.send(404,{'error':'Not found'})
+        if not self.origin_allowed():return self.send(403,{'error':'Origin not allowed'})
+        if self.headers.get('Content-Type','').split(';')[0]!='application/json':return self.send(415,{'error':'JSON required'})
+        try:
+            maximum=3600000 if route=='/api/marketplace/register' else 750000 if route=='/api/marketplace/products' else 12000
+            if route in ('/api/marketplace/products','/api/marketplace/withdraw'):
+                marketplace.identity(self.session_token())
+            length=int(self.headers.get('Content-Length','0'))
+            if not 0<length<=maximum:return self.send(413,{'error':'Request is too large or empty.'})
+            self.connection.settimeout(15)
+            data=json.loads(self.rfile.read(length))
+            if not isinstance(data,dict):raise ValueError()
+            message_id=None
+            if route=='/api/marketplace/register':result,message_id=marketplace.register(data)
+            elif route=='/api/marketplace/request-access':result,message_id=marketplace.request_access(data)
+            elif route=='/api/marketplace/consume':
+                result,token=marketplace.consume(data)
+                return self.send(200,result,headers=self.session_cookie(token))
+            elif route=='/api/marketplace/products':result=marketplace.add_product(self.session_token(),data)
+            elif route=='/api/marketplace/withdraw':result=marketplace.withdraw(self.session_token(),data)
+            elif route=='/api/marketplace/logout':
+                return self.send(200,suppliers.logout(self.session_token()),headers=self.session_cookie(''))
+            # Run before the response: serverless runtimes can freeze background workers.
+            # A failed attempt stays in the outbox for the mail worker; responses never enumerate accounts.
+            if message_id and os.environ.get('SMTP_HOST') and os.environ.get('MAIL_FROM'):
+                try:suppliers.send_email_queue(limit=1,message_id=message_id)
+                except Exception:pass
+            return self.send(200,result)
+        except suppliers.WorkflowError as error:
+            return self.send(error.status,{'error':str(error)})
+        except (ValueError,TypeError,UnicodeError):
+            return self.send(400,{'error':'Invalid request.'})
+        except Exception:
+            return self.send(503,{'error':'Supplier service is temporarily unavailable. Please try again later.'})
 
     def session_token(self):
         cookie = SimpleCookie()
@@ -157,6 +233,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if route.startswith('/api/admin/'):
                 suppliers.authenticate(self.session_token(), 'admin')
+                if route == '/api/admin/marketplace':
+                    return self.send(200,marketplace.admin_accounts())
+                if route.startswith('/api/admin/market-license/'):
+                    return self.send(200,marketplace.license_document(route.rsplit('/',1)[-1]),'application/octet-stream',{'Content-Disposition':'attachment; filename="business-license.pdf"','Content-Security-Policy':"sandbox; default-src 'none'"})
                 if route == '/api/admin/connections':
                     return self.send(200, connections.status())
                 if route.startswith('/api/admin/supplier-profile/'):
@@ -180,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error':'Supplier service is temporarily unavailable.'})
 
     def workflow_post(self, route):
-        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/check-connection')
+        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/check-connection','/api/admin/hide-product')
         if route not in allowed: return self.send(404, {'error':'Not found'})
         if not self.origin_allowed():
             return self.send(403, {'error':'Origin not allowed'})
@@ -196,7 +276,8 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(15)
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict): raise ValueError()
-            if route == '/api/supplier/apply': result = suppliers.apply(data)
+            if route == '/api/supplier/apply':
+                return self.send(410, {'error':'Use the new supplier form. Products publish after email confirmation, without manager approval.'})
             elif route == '/api/supplier/request-access': result = suppliers.request_access(data)
             elif route == '/api/supplier/consume':
                 result, token = suppliers.consume(data)
@@ -207,6 +288,7 @@ class Handler(BaseHTTPRequestHandler):
             elif route.endswith('/logout'):
                 return self.send(200, suppliers.logout(self.session_token()), headers=self.session_cookie(''))
             elif route == '/api/admin/check-connection': result = connections.check(data.get('service'))
+            elif route == '/api/admin/hide-product': result = marketplace.moderate(data)
             elif route == '/api/admin/review': result = suppliers.review(data)
             elif route == '/api/admin/send-mail': result = suppliers.send_email_queue(limit=1)
             return self.send(200, result)

@@ -6,3 +6,5 @@ private/
 node_modules/
 __pycache__/
 tests/
+
+.venv/

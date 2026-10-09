@@ -1,4 +1,4 @@
-"""Approval-only supplier workflow. SQLite locally; PostgreSQL when DATABASE_URL is set."""
+"""Shared persistence, email/session services and legacy supplier workflow."""
 import base64
 import hashlib
 import hmac
@@ -90,16 +90,18 @@ def database():
 
 
 def initialize():
+    from app.marketplace import SCHEMA as MARKET_SCHEMA
+    from app.public_ai import SCHEMA as PUBLIC_AI_SCHEMA
     with database() as db:
         if db.postgres:
             db.execute('CREATE SCHEMA IF NOT EXISTS stratevo_private')
             db.execute('REVOKE ALL ON SCHEMA stratevo_private FROM PUBLIC')
-        for statement in SCHEMA.split(';'):
+        for statement in (SCHEMA + MARKET_SCHEMA + PUBLIC_AI_SCHEMA).split(';'):
             if statement.strip():
                 db.execute(statement)
         if db.postgres:
             # Fresh initialization must be private too, not only migrated installs.
-            for table in ('applications','tokens','sessions','audit','outbox','rate_limits'):
+            for table in ('applications','tokens','sessions','audit','outbox','rate_limits','market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots'):
                 db.execute('ALTER TABLE ' + table + ' ENABLE ROW LEVEL SECURITY')
                 db.execute('REVOKE ALL ON ' + table + ' FROM PUBLIC')
             for role in ('anon','authenticated'):
@@ -169,7 +171,9 @@ def email_address(data):
 
 
 def queue(db, email, subject, body):
-    db.execute('INSERT INTO outbox(id,recipient,subject,body,created_at) VALUES (?,?,?,?,?)', (str(uuid.uuid4()), email, subject, body, now()))
+    message_id=str(uuid.uuid4())
+    db.execute('INSERT INTO outbox(id,recipient,subject,body,created_at) VALUES (?,?,?,?,?)', (message_id, email, subject, body, now()))
+    return message_id
 
 
 def issue_token(db, application, purpose):
@@ -314,14 +318,18 @@ def profile(identity):
     return approved_profile(identity['application_id'])
 
 
-def send_email_queue(limit=10):
+def send_email_queue(limit=10, message_id=None):
     """At-least-once delivery: SMTP cannot offer atomic exactly-once delivery."""
     host, sender = os.environ.get('SMTP_HOST'), os.environ.get('MAIL_FROM')
     if not host or not sender: raise WorkflowError('SMTP is not configured. Emails remain queued.',503)
     sent, failed = 0, 0
     for _ in range(limit):
         with database() as db:
-            row = db.execute('SELECT id FROM outbox WHERE sent_at IS NULL AND claimed_until<? AND attempts<5 ORDER BY created_at LIMIT 1', (now(),)).fetchone()
+            query = 'SELECT id FROM outbox WHERE sent_at IS NULL AND claimed_until<? AND attempts<5'
+            args = [now()]
+            if message_id:
+                query += ' AND id=?';args.append(message_id)
+            row = db.execute(query+' ORDER BY created_at LIMIT 1', tuple(args)).fetchone()
             if not row: break
             claimed = db.execute('UPDATE outbox SET claimed_until=?,attempts=attempts+1 WHERE id=? AND sent_at IS NULL AND claimed_until<? RETURNING id,recipient,subject,body', (now()+120,row['id'],now())).fetchone()
             if not claimed: continue

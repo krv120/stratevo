@@ -47,13 +47,18 @@ def match(requirement, db=catalog.DB):
     tokens = re.findall(r'[\w]+', requirement['product'].casefold())
     if not tokens:
         raise ValueError('Provide product keywords')
-    if not catalog.count(db):
+    rows = []
+    if catalog.count(db):
+        connection = catalog.connect(db)
+        try:
+            rows = connection.execute('SELECT public_summary FROM records ORDER BY id').fetchall()
+        finally:
+            connection.close()
+    if db == catalog.DB:
+        from app.marketplace import research_rows
+        rows += [(json.dumps(row),) for row in research_rows()]
+    if not rows:
         return {'status':'no_match','matches':[], 'message':HANDOFF, 'reviewed_product_candidates':0}
-    connection = catalog.connect(db)
-    try:
-        rows = connection.execute('SELECT public_summary FROM records ORDER BY id').fetchall()
-    finally:
-        connection.close()
     results, candidate_count, seen = [], 0, set()
     gaps = set()
     for (raw,) in rows:
