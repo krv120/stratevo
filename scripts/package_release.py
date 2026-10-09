@@ -6,12 +6,12 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = ['START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
+ROOT_FILES = ['REFERENCE-RESTORATION.md','START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
               'AI-EVALUATION.md','KEY-SETUP.md','DEPLOYMENT.md','SOURCING-AI-NOTES.md',
               'LIVE-SITE-AUDIT.md','.env.example','.gitignore','.vercelignore',
               'requirements.txt','vercel.json']
 DIRECTORIES = ['app','api','web','scripts','tests','migrations']
-SUFFIXES = {'.py','.js','.cjs','.css','.html','.sql','.json','.jsonl'}
+SUFFIXES = {'.py','.js','.cjs','.css','.html','.sql','.json','.jsonl','.woff2','.txt'}
 LOGS = ['unit-tests.log','postgres-tests.log','browser-tests.log','bandit-after.json']
 
 
@@ -42,7 +42,7 @@ def build():
     output.parent.mkdir(mode=0o700,exist_ok=True)
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for name,data in sorted(files.items()):
-            entry=zipfile.ZipInfo(name,date_time=(2026,10,8,0,0,0))
+            entry=zipfile.ZipInfo(name,date_time=(2026,10,9,0,0,0))
             entry.compress_type=zipfile.ZIP_DEFLATED
             entry.external_attr=0o100644 << 16
             archive.writestr(entry,data)

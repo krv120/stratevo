@@ -2,6 +2,10 @@
 
 This ZIP contains the updated source, audit findings, AI knowledge/language guide, test suite and deployment instructions. It does **not** contain your API key, supplier exports, databases or private documents.
 
+## Latest change
+
+The homepage now follows the supplied black/blue screenshot reference; supplier signup and AI error handling have been refined. Read `REFERENCE-RESTORATION.md` first. Current automated suite: 80 passing tests. The older audit report is retained as historical validation, with ongoing launch gates.
+
 ## Your next steps
 
 1. Unzip into a working folder. Read `AUDIT-REPORT.md` for fixes and remaining limits.
@@ -14,7 +18,7 @@ This ZIP contains the updated source, audit findings, AI knowledge/language guid
 
 ## Files worth reading
 
-- `AUDIT-REPORT.md`: engineering review, fixes, 74-test result, PostgreSQL/browser validation and launch gates.
+- `AUDIT-REPORT.md`: earlier engineering review and remaining launch gates; the latest 80-test validation is in `REFERENCE-RESTORATION.md`.
 - `AI-KNOWLEDGE-GUIDE.md`: curated sourcing knowledge and slang/Greeklish interpretation rules.
 - `AI-EVALUATION.md`: 26 manual cases for your real model after deployment.
 - `KEY-SETUP.md`: exact Gemini setup without Brave, and optional search setup later.

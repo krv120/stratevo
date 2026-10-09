@@ -3,12 +3,20 @@ import json
 import os
 import urllib.error
 import urllib.request
+import socket
 from urllib.parse import urlparse
 
 from app.matching import match, render
 from app.privacy import safe_answer
 from app.discovery import discover, configured as discovery_configured
 from app.knowledge import context_for
+
+class ProviderError(ValueError):
+    """Safe error detail, never raw provider bodies or secrets."""
+    def __init__(self, message, code='provider_unavailable'):
+        super().__init__(message)
+        self.code = code
+
 
 BOOKING = 'https://app.minup.io/book/stratevo'
 SYSTEM = """You are STRATEVO's pragmatic B2B Supply Chain Director: concise, professional, no hype. Respond in the user's language. STRATEVO is an independent B2B sourcing partner across industrial components, packaging, consumer products, and food/ingredients. The process is Source → Qualify → Compare → Negotiate → Deliver. Customer stages: Definition Call → Supplier Identification → Negotiation → Delivery & Support. Explain that requirements become a commercially sound route to supply through human qualification, not a guaranteed outcome. Contact supplied by the owner: hello@stratevo.co; website stratevo.online. Mailbox ownership/delivery and the intentional domain difference have not been verified.
@@ -19,10 +27,10 @@ TOOL = {'type': 'function', 'function': {
     'name': 'match_catalog', 'description': 'Match only after the user explicitly supplies all four qualification points. Returns at most three unverified anonymized leads.',
     'parameters': {'type': 'object', 'properties': {
         'product': {'type':'string', 'description':'English product keywords, not full sentences'},
-        'volume': {'type':'number'}, 'unit': {'type':'string'},
+        'volume': {'type':'number','description':'Positive order quantity explicitly supplied by the user; never annual demand unless requested'}, 'unit': {'type':'string','description':'Explicit selling unit, e.g. pieces, sets, kilograms; never infer carton contents'},
         'location': {'type':'string', 'description':'Supplier location; any only when explicitly unrestricted'},
         'certifications': {'type':'array', 'items':{'type':'string'}, 'description':'Empty only if user explicitly requires none'},
-        'lead_time_days': {'type':'number'}, 'target_price': {'type':'number'}, 'currency': {'type':'string'}
+        'lead_time_days': {'type':'number','description':'Optional maximum lead time in days, only if provided'}, 'target_price': {'type':'number','description':'Optional target unit price, never a verified quotation'}, 'currency': {'type':'string','description':'Three-letter currency required with a target price, e.g. EUR'}
     }, 'required':['product','volume','unit','location','certifications'], 'additionalProperties':False}
 }}
 
@@ -66,8 +74,16 @@ def validate_messages(messages):
 
 def provider_request(messages, tools=True):
     key, base, model = configuration()
-    output_limit = max(256, min(int(os.environ.get('AI_MAX_OUTPUT_TOKENS','2048')),4096))
+    is_gemini = urlparse(base).hostname == 'generativelanguage.googleapis.com'
+    output_limit = max(256, min(int(os.environ.get('AI_MAX_OUTPUT_TOKENS','4096' if is_gemini else '2048')),8192))
     payload = {'model': model, 'messages': messages, 'max_tokens': output_limit}
+    effort = os.environ.get('AI_REASONING_EFFORT','').strip()
+    if not effort and is_gemini and model.startswith('gemini-2.5-'):
+        effort = 'low'
+    if effort:
+        if effort not in ('none','minimal','low','medium','high'):
+            raise ProviderError('AI_REASONING_EFFORT must be none, minimal, low, medium or high.', 'configuration')
+        payload['reasoning_effort'] = effort
     if tools:
         payload.update(tools=[TOOL] + ([ONLINE_TOOL] if discovery_configured() else []), tool_choice='auto')
     request = urllib.request.Request(base + '/chat/completions', data=json.dumps(payload).encode(), headers={
@@ -76,18 +92,33 @@ def provider_request(messages, tools=True):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs):
             return None
-    with urllib.request.build_opener(NoRedirect()).open(request, timeout=25) as response:
-        raw = response.read(1_000_001)
-        if len(raw) > 1_000_000:
-            raise ValueError('Provider response too large')
-        document = json.loads(raw)
-        choice = document['choices'][0]
-        if choice.get('finish_reason') == 'length':
-            raise ValueError('Provider output was truncated; no incomplete answer returned')
-        message = choice['message']
-        if not isinstance(message, dict):
-            raise ValueError('Invalid provider response')
-        return message
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=25) as response:
+            raw = response.read(1_000_001)
+            if len(raw) > 1_000_000:
+                raise ValueError('Provider response too large')
+            document = json.loads(raw)
+            choice = document['choices'][0]
+            if choice.get('finish_reason') == 'length':
+                raise ProviderError('The model reached its response limit. Please ask a narrower question, or have the manager increase AI_MAX_OUTPUT_TOKENS or lower the reasoning effort.', 'output_limit')
+            message = choice['message']
+            if not isinstance(message, dict):
+                raise ValueError('Invalid provider response')
+            return message
+    except urllib.error.HTTPError as error:
+        messages = {
+            400: ('The AI provider rejected this configuration or request. Check the selected model, API base URL and supported options in manager settings.', 'configuration'),
+            401: ('The AI provider did not accept the API key. The manager needs to check the hosting secret and redeploy.', 'authentication'),
+            403: ('The AI provider denied access. Check model permissions, project restrictions and account eligibility.', 'access_denied'),
+            404: ('The configured AI model or endpoint was not found. Check the model ID and API base URL.', 'model_not_found'),
+            429: ('The AI provider is rate-limited or out of quota. Check account quota/billing and retry later.', 'provider_quota')
+        }
+        message, code = messages.get(error.code, ('The AI provider is temporarily unavailable. Please try again later.', 'provider_unavailable'))
+        raise ProviderError(message,code) from None
+    except (TimeoutError, socket.timeout):
+        raise ProviderError('The AI provider timed out. Please try a shorter question or try again later.', 'provider_timeout') from None
+    except urllib.error.URLError:
+        raise ProviderError('The server could not connect securely to the AI provider. Check hosting network access and the API base URL.', 'provider_network') from None
 
 
 def reply(messages, request_fn=None):

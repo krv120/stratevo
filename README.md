@@ -2,6 +2,10 @@
 
 A Python/vanilla-JavaScript sourcing website and private supplier-approval platform. This is a new implementation, **not recovered production source**. Repository edits do not change `stratevo.online` until you deploy them.
 
+## Latest screenshot-led update
+
+The frontend now follows the owner’s October 9 screenshot reference while retaining the newer AI and private supplier workflow. See [REFERENCE-RESTORATION.md](REFERENCE-RESTORATION.md) for the visual scope, supplier fixes, Gemini research and current validation. This is a reconstruction, not recovered original source.
+
 ## Start here
 
 1. **[KEY-SETUP.md](KEY-SETUP.md)** — your Google Gemini configuration, without Brave; manager connection tests; supplier email/profile setup.
@@ -47,7 +51,7 @@ Raw research provenance is private. Buyer projections strip recognized source UR
 
 ## Validation
 
-Current audit: **74 Python unit/HTTP tests passed**; real ephemeral PostgreSQL tests passed; Chromium supplier workflow, manager profile/connection diagnostics and six 390px mobile routes passed. See `AUDIT-REPORT.md` for exact scope and limitations. External AI/search responses were mocked in automated tests; real credentials and SMTP inbox delivery were not tested here.
+Current audit: **80 Python unit/HTTP tests passed**; real ephemeral PostgreSQL tests passed; Chromium supplier workflow, manager profile/connection diagnostics and six 390px mobile routes passed. See `REFERENCE-RESTORATION.md` for this revision and `AUDIT-REPORT.md` for the earlier audit and remaining launch gates. External AI/search responses were mocked in automated tests; real credentials and SMTP inbox delivery were not tested here.
 
 ```sh
 python3 -m unittest discover -s tests -v

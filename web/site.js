@@ -18,6 +18,8 @@ formTask('application-form','application-status',async (data, form) => {
   const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('Could not read the document.'));reader.readAsDataURL(file);});
   data.license_pdf=encoded; data.consent=form.elements.consent.checked;
   const result=await request('/api/supplier/apply',data); form.reset(); byId('application-status').textContent=result.message;
+  byId('license-file-status').textContent='No document selected.';
+  form.hidden=true;byId('application-success').hidden=false;byId('application-success').focus();
 });
 formTask('access-form','access-status',async data => {byId('access-status').textContent=(await request('/api/supplier/request-access',data)).message;});
 let applications=[];
@@ -105,4 +107,19 @@ for (const [id, service] of [['check-ai','ai'],['check-search','search']]) {
     catch(error){byId('connection-test-status').textContent=error.message;}
     finally{byId('check-ai').disabled=byId('check-search').disabled=false;}
   };
+}
+
+// Keep the contact requirement and document validation visible before submission.
+if(byId('application-form')) {
+  const whatsapp=byId('whatsapp'), wechat=byId('wechat'), fileInput=byId('license-file');
+  function contactValidity(){whatsapp.setCustomValidity(!whatsapp.value.trim()&&!wechat.value.trim()?'Provide WhatsApp or WeChat. You do not need both.':'');}
+  [whatsapp,wechat].forEach(input=>input.addEventListener('input',contactValidity));contactValidity();
+  fileInput.addEventListener('change',()=>{
+    const file=fileInput.files[0];let error='';
+    if(file && file.size>2*1024*1024)error='Choose a PDF no larger than 2 MB.';
+    else if(file && !file.name.toLowerCase().endsWith('.pdf'))error='Choose a PDF document.';
+    fileInput.setCustomValidity(error);
+    byId('license-file-status').textContent=error || (file?`${file.name} · ${Math.ceil(file.size/1024)} KB · Selected, not submitted`:'No document selected.');
+  });
+  byId('new-application').onclick=()=>{byId('application-success').hidden=true;byId('application-form').hidden=false;byId('application-status').textContent='';fileInput.setCustomValidity('');contactValidity();byId('company').focus();};
 }

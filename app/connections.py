@@ -24,6 +24,8 @@ def check(service):
             answer = agent.provider_request([{'role':'user','content':'Connection test. Reply with OK only.'}],tools=False)
             if not isinstance(answer.get('content'),str) or not answer['content'].strip():
                 raise ValueError('Empty answer')
+        except agent.ProviderError as error:
+            return {'ok':False,'message':str(error),'code':error.code}
         except Exception:
             return {'ok':False,'message':'AI connection failed. Check the endpoint, model access, key, provider billing and hosting outbound access. Secret/provider error details are not shown.'}
         return {'ok':True,'message':'The configured model returned a response. Test a full sourcing conversation next; this basic check does not validate tool calling or answer quality.'}

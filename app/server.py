@@ -10,7 +10,7 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.agent import configured, reply
+from app.agent import configured, reply, ProviderError
 from app.catalog import count, search, owner_records
 from app import suppliers, connections
 from app.matching import match
@@ -63,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.authorized():
                 return self.send(401, {'error': 'Owner access required'})
             return self.send(200, {'provider_configured': connections.status()['ai_configured'], 'online_discovery_configured': discovery_configured(), 'research_rows': count(), 'production_connected': False})
-        files = {'/': ('home.html', 'text/html; charset=utf-8'), '/supplier': ('supplier.html','text/html; charset=utf-8'), '/admin': ('admin.html','text/html; charset=utf-8'), '/access': ('access.html','text/html; charset=utf-8'), '/portal': ('portal.html','text/html; charset=utf-8'), '/site.js': ('site.js','application/javascript'), '/site.css': ('site.css','text/css'), '/ai': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}
+        files = {'/fonts/inter-latin.woff2': ('fonts/inter-latin.woff2','font/woff2'), '/fonts/inter-greek.woff2': ('fonts/inter-greek.woff2','font/woff2'), '/visual.js': ('visual.js','application/javascript'), '/reference.css': ('reference.css','text/css'), '/': ('home.html', 'text/html; charset=utf-8'), '/supplier': ('supplier.html','text/html; charset=utf-8'), '/admin': ('admin.html','text/html; charset=utf-8'), '/access': ('access.html','text/html; charset=utf-8'), '/portal': ('portal.html','text/html; charset=utf-8'), '/site.js': ('site.js','application/javascript'), '/site.css': ('site.css','text/css'), '/ai': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}
         if route not in files:
             return self.send(404, {'error': 'Not found'})
         name, mime = files[route]
@@ -135,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error':'Research service is temporarily unavailable. Please retry later.'})
         try:
             return self.send(200, reply(messages))
+        except ProviderError as error:
+            return self.send(502, {'error':str(error), 'code':error.code})
         except Exception:
             return self.send(502, {'error': 'The AI provider could not answer. Try again or use catalog search. No order was placed.'})
 

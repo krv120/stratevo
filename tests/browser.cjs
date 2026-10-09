@@ -15,11 +15,11 @@ print(next(r[0].split('#token=')[1].split()[0] for r in rows if '#token=' in r[0
 }
 (async()=>{
  const { default: chromium } = await import('../private/browser/node_modules/@sparticuz/chromium/build/index.js');
- const browser=await playwright.launch({executablePath:await chromium.executablePath(),args:chromium.args.filter(arg=>!['--single-process','--disable-web-security','--disable-site-isolation-trials'].includes(arg)),headless:true});
+ const browser=await playwright.launch({executablePath:await chromium.executablePath(),args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu'],headless:true});
  const errors=[];
  const user=await browser.newContext({viewport:{width:1440,height:1000}});
  const page=await user.newPage();page.on('pageerror',error=>errors.push(error.message));
- await page.goto(base);await page.getByRole('heading',{name:'Find the right fit. Not just a supplier.'}).waitFor();
+ await page.goto(base);await page.getByRole('heading',{name:'find a stronger route from brief to supply.'}).waitFor();
  await page.screenshot({path:'private/home-desktop.png',fullPage:true});
  console.log('PASS desktop homepage');
  const unauthorized=await user.request.get(base+'/api/admin/applications');assert.equal(unauthorized.status(),401);
@@ -29,14 +29,22 @@ print(next(r[0].split('#token=')[1].split()[0] for r in rows if '#token=' in r[0
  await page.getByLabel('Business email',{exact:true}).fill(testEmail);
  await page.getByLabel('Country / region of registration').fill('Greece');
  await page.getByLabel('Main product category').fill('Lighting');
+ assert.match(await page.getByLabel('WhatsApp (optional if WeChat provided)',{exact:true}).evaluate(el=>el.validationMessage),/WhatsApp or WeChat/);
+ await page.getByLabel('WeChat (optional if WhatsApp provided)',{exact:true}).fill('test-wechat');
+ assert.equal(await page.getByLabel('WhatsApp (optional if WeChat provided)',{exact:true}).evaluate(el=>el.validationMessage),'');
+ await page.getByLabel('WeChat (optional if WhatsApp provided)',{exact:true}).fill('');
  await page.getByLabel('WhatsApp (optional if WeChat provided)',{exact:true}).fill('+300000000000');
  await page.getByLabel('Products and capabilities').fill('Browser test only: lighting research and product manufacturing. No real supplier data.');
  await page.getByLabel('Business registration / license number').fill('BROWSER-TEST-ONLY');
+ await page.getByLabel('Business license PDF').setInputFiles({name:'bad.txt',mimeType:'text/plain',buffer:Buffer.from('test-only invalid document')});
+ await page.locator('#license-file-status').filter({hasText:'Choose a PDF document'}).waitFor();
  await page.getByLabel('Business license PDF').setInputFiles({name:'test-license.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n% browser fixture only\n%%EOF')});
  await page.getByRole('checkbox').check();
  await page.getByRole('button',{name:'Submit for email verification'}).click();
  await page.locator('#application-status').filter({hasText:'verification email will be sent'}).waitFor();
- console.log('PASS supplier application submission');
+ await page.locator('#application-success').waitFor({state:'visible'});
+ assert.equal(await page.locator('#application-form').isVisible(),false);
+ console.log('PASS supplier contact/document validation, application submission and next-step confirmation');
  await page.goto(base+'/access#token='+emailToken(testEmail));
  assert.equal(new URL(page.url()).hash,'');
  await page.getByRole('button',{name:'Continue securely'}).click();
@@ -67,6 +75,7 @@ print(next(r[0].split('#token=')[1].split()[0] for r in rows if '#token=' in r[0
  console.log('PASS manager-only profile and missing-key connection diagnostics');
 
  await manager.goto(base+'/ai');
+ await manager.locator('.qualification summary').click();
  await manager.getByLabel('1 / Product keywords (English index)').fill('Christmas tree');
  await manager.getByLabel('2 / Target volume').fill('100');
  await manager.getByLabel('Volume unit',{exact:true}).fill('pieces');
@@ -85,6 +94,16 @@ print(next(r[0].split('#token=')[1].split()[0] for r in rows if '#token=' in r[0
  assert.equal(await manager.locator('#match-status').textContent(),'');
  assert.match(await manager.locator('#results').textContent(),/cleared/);
  console.log('PASS disabled online-search disclosure and stale research reset');
+ await manager.route('**/api/chat',route=>route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'The AI provider is rate-limited or out of quota.'})}));
+ await manager.getByRole('button',{name:'Prepare an RFQ',exact:true}).click();
+ await manager.getByRole('button',{name:'Send message'}).click();
+ await manager.locator('#messages').filter({hasText:'rate-limited'}).waitFor();
+ assert.equal(await manager.locator('#question').inputValue(),'What should I include in an RFQ?');
+ assert.equal(await manager.locator('#send').isEnabled(),true);
+ assert.equal(await manager.locator('#chat-progress').textContent(),'');
+ await manager.unroute('**/api/chat');
+ console.log('PASS mocked AI provider error, retained question and reset loading state');
+
 
  await page.goto(base+'/access#token='+emailToken(testEmail));
  await page.getByRole('button',{name:'Continue securely'}).click();
@@ -104,6 +123,16 @@ print(next(r[0].split('#token=')[1].split()[0] for r in rows if '#token=' in r[0
    if(route==='/supplier')await phone.screenshot({path:'private/supplier-mobile.png',fullPage:true});
  }
  console.log('PASS six routes at 390px mobile viewport; no horizontal overflow');
+ await phone.goto(base+'/');await phone.getByRole('button',{name:'Menu'}).click();
+ await phone.getByRole('navigation').getByRole('link',{name:'Are you a supplier?',exact:true}).click();
+ await phone.waitForURL('**/supplier');
+ for(const width of [320,768,1568]){
+   await phone.setViewportSize({width,height:900});
+   for(const route of ['/','/supplier','/ai']){await phone.goto(base+route);await phone.evaluate(()=>document.fonts.ready);assert.ok(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`Overflow ${width} ${route}`);}
+ }
+ await phone.emulateMedia({reducedMotion:'reduce'});await phone.goto(base+'/');
+ assert.equal(await phone.locator('#constellation').evaluate(el=>getComputedStyle(el).display),'none');
+ console.log('PASS mobile supplier navigation, 320/768/1568px layouts and reduced-motion mode');
  assert.deepEqual(errors,[]);console.log('PASS no browser JavaScript errors');
  await browser.close();
 })().catch(error=>{console.error(error);process.exit(1);});

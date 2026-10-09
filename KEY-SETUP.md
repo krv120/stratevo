@@ -9,7 +9,8 @@ Use these server-side values in the project that runs this code:
 | `AI_API_KEY` | Your own secret Gemini API key from Google AI Studio |
 | `AI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` |
 | `AI_MODEL` | `gemini-2.5-flash`, if available to your key; otherwise an available compatible model ID |
-| `AI_MAX_OUTPUT_TOKENS` | `2048` (bounded by the application to 256–4096) |
+| `AI_MAX_OUTPUT_TOKENS` | `4096` for this Gemini setup (bounded by the application to 256–8192) |
+| `AI_REASONING_EFFORT` | `low` for Gemini 2.5; only use values supported by your model |
 | `ONLINE_DISCOVERY_ENABLED` | `false` |
 | `BRAVE_SEARCH_API_KEY` | Leave unset |
 
