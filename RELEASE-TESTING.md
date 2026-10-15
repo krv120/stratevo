@@ -1,3 +1,5 @@
+> **Current Vercel fix:** see [VERCEL-FIX-2026-10-15.md](VERCEL-FIX-2026-10-15.md) for changed immediate-publication behavior, automatic migrations and the limitations of ephemeral fallback. Earlier release results below are historical.
+
 # Reproducing the reviewed release tests
 
 Version **2026.10.13-rc1**. Use synthetic/isolated environments only. Run from the extracted project root. Do not point tests at a real database or enable live provider/mail services.
@@ -50,3 +52,15 @@ The packaged PNG screenshots show local public pages without private records. Th
 Run `STRATEVO_RELEASE_COMMIT="$(git rev-parse HEAD)" python scripts/package_release.py` only after the final source/tests/docs are reviewed. Its allowlist excludes private data/configuration/dependencies, includes reviewed evidence only if available, and writes `MANIFEST.json` with release version, source commit and file SHA-256 hashes. A clean build without local validation files contains source but cannot invent missing evidence.
 
 Inspect/extract the ZIP, verify manifest/CRC and exclusions, and rerun unit tests inside the extracted tree. Final application/browser/database evidence must match the packaged source; old reports are historical context, not a replacement for fresh tests.
+
+## Vercel adapter regression additions
+
+After the existing setup (`requirements.txt`, test-only pgserver, browser dependencies), also run:
+
+```sh
+PYTHONPATH=.:tests .venv/bin/python tests/vercel_postgres_integration.py
+PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py
+PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --postgres
+```
+
+The HTTPS browser runner requires the local `openssl` command. It creates a one-day self-signed certificate and isolated synthetic database under `private/`, starts the actual Vercel adapter on a random loopback port, then shuts it down and removes its temporary fixture. No live services or real credentials are used. The original three browser suites still target the isolated port-8002 test server described above.

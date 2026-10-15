@@ -234,3 +234,32 @@ class MarketplaceTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT body FROM outbox WHERE id=?',(second,)).fetchone()['body'],'')
 
 if __name__=='__main__':unittest.main()
+
+class ImmediatePublishingTests(unittest.TestCase):
+    setUpClass=classmethod(MarketplaceTests.setUpClass.__func__)
+    tearDownClass=classmethod(MarketplaceTests.tearDownClass.__func__)
+    setUp=MarketplaceTests.setUp
+    http=MarketplaceTests.http
+    def test_registration_session_and_exact_retry_without_email_configuration(self):
+        payload=application(submission_key='secure-synthetic-attempt-key-1234567890')
+        with patch.dict(os.environ,{'PUBLIC_BASE_URL':'','PUBLIC_ORIGIN_VERIFIED':'false'}):
+            status,body,headers=self.http('/api/marketplace/register',payload)
+            self.assertEqual(status,200);result=json.loads(body)
+            self.assertTrue(result['published']);self.assertFalse(result['email_confirmed'])
+            self.assertNotIn('_session',result);self.assertIn('HttpOnly',headers['Set-Cookie'])
+            cookie=headers['Set-Cookie'].split(';')[0]
+            self.assertEqual(self.http('/api/marketplace/me',cookie=cookie)[0],200)
+            self.assertEqual(m.listings()['total'],1)
+            status,_,again=self.http('/api/marketplace/register',payload)
+            self.assertEqual(status,200);self.assertIn('Set-Cookie',again);self.assertEqual(m.listings()['total'],1)
+            status,body,headers=self.http('/api/marketplace/register',{**payload,'submission_key':'different-synthetic-attempt-key-1234567890'})
+            self.assertEqual(status,200);self.assertFalse(json.loads(body)['published']);self.assertNotIn('Set-Cookie',headers)
+            with s.database() as db:self.assertIsNone(db.execute('SELECT verified_at FROM market_accounts').fetchone()['verified_at'])
+            self.assertEqual(self.http('/api/marketplace/register',{**payload,'company':'Changed'})[0],409)
+            self.assertEqual(self.http('/api/marketplace/products',product(title='Another valid product'),cookie=cookie)[0],200)
+            self.assertEqual(m.listings()['total'],2)
+            controls_id=m.admin_accounts()['accounts'][0]['id']
+            from app import controls
+            controls.suspension({'id':controls_id,'suspended':True,'reason':'Test immediate publication suspension'},'test-admin')
+            self.assertEqual(m.listings()['total'],0)
+            self.assertEqual(self.http('/api/marketplace/register',payload)[0],403)

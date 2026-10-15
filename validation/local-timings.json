@@ -2,56 +2,56 @@
   {
     "route": "/",
     "domContentLoadedMs": 28,
-    "transferBytes": 10862
+    "transferBytes": 10950
   },
   {
     "route": "/ai",
-    "domContentLoadedMs": 41,
-    "transferBytes": 9810
+    "domContentLoadedMs": 42,
+    "transferBytes": 9843
   },
   {
     "route": "/supplier",
-    "domContentLoadedMs": 36,
-    "transferBytes": 12889
+    "domContentLoadedMs": 45,
+    "transferBytes": 13618
   },
   {
     "route": "/marketplace",
-    "domContentLoadedMs": 38,
-    "transferBytes": 6969
+    "domContentLoadedMs": 45,
+    "transferBytes": 7111
   },
   {
     "route": "/inquiry",
-    "domContentLoadedMs": 45,
-    "transferBytes": 10526
+    "domContentLoadedMs": 54,
+    "transferBytes": 10792
   },
   {
     "route": "/privacy",
-    "domContentLoadedMs": 24,
-    "transferBytes": 10512
+    "domContentLoadedMs": 32,
+    "transferBytes": 10600
   },
   {
     "route": "/terms",
     "domContentLoadedMs": 34,
-    "transferBytes": 7637
+    "transferBytes": 7725
   },
   {
     "route": "/admin",
-    "domContentLoadedMs": 40,
-    "transferBytes": 9952
+    "domContentLoadedMs": 44,
+    "transferBytes": 10026
   },
   {
     "route": "/access",
-    "domContentLoadedMs": 43,
-    "transferBytes": 5044
+    "domContentLoadedMs": 33,
+    "transferBytes": 5077
   },
   {
     "route": "/portal",
-    "domContentLoadedMs": 43,
-    "transferBytes": 5536
+    "domContentLoadedMs": 37,
+    "transferBytes": 5610
   },
   {
     "route": "/supplier/account",
-    "domContentLoadedMs": 35,
-    "transferBytes": 8565
+    "domContentLoadedMs": 38,
+    "transferBytes": 8710
   }
 ]

@@ -98,7 +98,9 @@ def submit(data):
             new_id=existing['id']
         else:
             enqueue(db,'customer',new_id,'Product: '+payload['product']+'\nDestination: '+payload['destination']+'\nQuantity: '+payload['quantity'])
-    return {'id':new_id,'saved':True,'message':'Your sourcing inquiry is saved. Keep this reference for follow-up. Email notification is queued separately; delivery is not yet confirmed. No order or payment has been created.'}
+    from app.settings import storage_status
+    storage=storage_status()
+    return {'id':new_id,'saved':True,'storage':storage,'message':storage['warning']+' '+'Your sourcing inquiry is saved. Keep this reference for follow-up. Email notification is queued separately; delivery is not yet confirmed. No order or payment has been created.'}
 
 
 def notification_state(row):

@@ -7,6 +7,7 @@ import re
 import sqlite3
 from pathlib import Path
 from app.privacy import buyer_safe
+from app import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / 'private'
@@ -21,34 +22,17 @@ def private_path(path):
 
 
 class PostgresConnection:
-    def __init__(self):
-        from app.settings import database_guard
-        database_guard()
-        import psycopg
-        self.raw = psycopg.connect(os.environ['DATABASE_URL'], connect_timeout=10)
-        self.raw.execute('SET search_path TO stratevo_private')
-    def execute(self, sql, args=()):
-        return self.raw.execute(sql.replace('?', '%s'), args)
-    def __enter__(self): return self
-    def __exit__(self, kind, value, trace):
-        self.raw.rollback() if kind else self.raw.commit()
-    def close(self): self.raw.close()
+    def __init__(self, raw):self.raw=raw
+    def execute(self, sql, args=()):return self.raw.execute(sql.replace('?', '%s'), args)
+    def __enter__(self):return self
+    def __exit__(self, kind, value, trace):self.raw.rollback() if kind else self.raw.commit()
+    def close(self):self.raw.close()
 
 
 def connect(path=DB):
-    if os.environ.get('DATABASE_URL'):
-        return PostgresConnection()
-    path = private_path(path)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
-    os.chmod(path, 0o600)
-    connection.executescript('''
-      CREATE TABLE IF NOT EXISTS records (
-        id TEXT PRIMARY KEY, batch TEXT NOT NULL, fingerprint TEXT NOT NULL,
-        original TEXT NOT NULL, public_summary TEXT NOT NULL);
-      CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(id UNINDEXED, description);
-    ''')
-    return connection
+    from app.connections import open_database
+    raw,postgres=open_database(path)
+    return PostgresConnection(raw) if postgres else raw
 
 
 def import_json(path, db=DB):
@@ -130,12 +114,12 @@ def search(query, limit=6, db=DB):
     # FTS syntax is never accepted from the browser/model.
     tokens = re.findall(r'[^\W_]+', query.casefold(), flags=re.UNICODE)[:16]
     tokens = [t for t in tokens if len(t) > 1 and t not in {'the', 'with', 'for', 'and', 'find', 'me', 'want', 'need', 'please', 'show'}]
-    if not tokens or (not os.environ.get("DATABASE_URL") and not Path(db).exists()):
+    if not tokens:
         return []
     expression = ' OR '.join('"' + t + '"' for t in tokens)
     connection = connect(db)
     try:
-        if os.environ.get('DATABASE_URL'):
+        if settings.database_url():
             expression = ' | '.join(tokens)
             rows = connection.execute("SELECT records.public_summary FROM search JOIN records ON records.id=search.id WHERE to_tsvector('simple',description) @@ to_tsquery('simple',?) ORDER BY ts_rank(to_tsvector('simple',description),to_tsquery('simple',?)) DESC LIMIT ?", (expression,expression,max(1,min(int(limit),10)))).fetchall()
         else:
@@ -156,8 +140,6 @@ def search(query, limit=6, db=DB):
 
 
 def count(db=DB):
-    if not os.environ.get("DATABASE_URL") and not Path(db).exists():
-        return 0
     connection = connect(db)
     try:
         return connection.execute('SELECT COUNT(*) FROM records').fetchone()[0]
@@ -175,8 +157,6 @@ if __name__ == '__main__':
 
 def owner_records(limit=200):
     """Manager-only original summaries; never use this in buyer/model endpoints."""
-    if not os.environ.get('DATABASE_URL') and not DB.exists():
-        return []
     connection = connect()
     try:
         rows = connection.execute('SELECT original FROM records ORDER BY id LIMIT ?', (max(1,min(limit,200)),)).fetchall()

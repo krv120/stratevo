@@ -15,6 +15,7 @@ test_matching_is_public_but_raw_search_is_private (test_app.HTTPTests.test_match
 test_matching_rejects_invalid_requirements (test_app.HTTPTests.test_matching_rejects_invalid_requirements) ... ok
 test_no_private_static_files (test_app.HTTPTests.test_no_private_static_files) ... ok
 test_rate_limit (test_app.HTTPTests.test_rate_limit) ... ok
+test_real_adapter_without_postgres_publishes_manages_and_blocks_internal_files (test_app.VercelAdapterTests.test_real_adapter_without_postgres_publishes_manages_and_blocks_internal_files) ... ok
 test_bad_url_fails_closed (test_audit_regressions.AuditRegressionTests.test_bad_url_fails_closed) ... ok
 test_context_is_curated_relevant_and_bounded (test_audit_regressions.AuditRegressionTests.test_context_is_curated_relevant_and_bounded) ... ok
 test_endpoint_must_be_base_not_completion_url (test_audit_regressions.AuditRegressionTests.test_endpoint_must_be_base_not_completion_url) ... ok
@@ -50,8 +51,8 @@ test_image_processing_lease_expires_and_releases (test_hardening.HardeningTests.
 test_mail_worker_requires_secret (test_hardening.HardeningTests.test_mail_worker_requires_secret) ... ok
 test_named_admin_totp_replay_and_rotation (test_hardening.HardeningTests.test_named_admin_totp_replay_and_rotation) ... ok
 test_public_model_cannot_invent_qualification_for_lookup (test_hardening.HardeningTests.test_public_model_cannot_invent_qualification_for_lookup) ... ok
-test_report_and_review (test_hardening.HardeningTests.test_report_and_review) ... /home/user/stratevo/app/suppliers.py:64: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
-  return self.raw.execute(sql.replace('?', '%s') if self.postgres else sql, args)
+test_report_and_review (test_hardening.HardeningTests.test_report_and_review) ... /home/user/stratevo/app/connections.py:99: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
+  if statement.strip():raw.execute(statement)
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
 test_retention_opt_in (test_hardening.HardeningTests.test_retention_opt_in) ... ok
@@ -61,6 +62,12 @@ test_suspend_revoke_hide_restore_does_not_publish (test_hardening.HardeningTests
 test_unapproved_indexing_stays_off (test_hardening.HardeningTests.test_unapproved_indexing_stays_off) ... ok
 test_unicode_case_insensitive_product_search (test_hardening.HardeningTests.test_unicode_case_insensitive_product_search) ... ok
 test_unscanned_upload_disabled (test_hardening.HardeningTests.test_unscanned_upload_disabled) ... ok
+test_configured_database_failure_never_silently_switches_storage (test_hardening.VercelConfigurationTests.test_configured_database_failure_never_silently_switches_storage) ... ok
+test_pooler_connections_disable_preparation_and_use_transactions (test_hardening.VercelConfigurationTests.test_pooler_connections_disable_preparation_and_use_transactions) ... ok
+test_production_origin_allowlist_rejects_spoof_and_cross_site (test_hardening.VercelConfigurationTests.test_production_origin_allowlist_rejects_spoof_and_cross_site) ... ok
+test_strict_and_environment_mismatch_still_fail_closed (test_hardening.VercelConfigurationTests.test_strict_and_environment_mismatch_still_fail_closed) ... ok
+test_url_priority_normalization_pooler_hints_and_tls (test_hardening.VercelConfigurationTests.test_url_priority_normalization_pooler_hints_and_tls) ... ok
+test_vercel_ip_headers_are_not_trusted_on_arbitrary_hosts (test_hardening.VercelConfigurationTests.test_vercel_ip_headers_are_not_trusted_on_arbitrary_hosts) ... ok
 test_client_disconnect_does_not_attempt_error_response (test_intake.IntakeTests.test_client_disconnect_does_not_attempt_error_response) ... ok
 test_customer_persistence_notification_separation_and_idempotency (test_intake.IntakeTests.test_customer_persistence_notification_separation_and_idempotency) ... ok
 test_header_like_addresses_and_accidental_keys_rejected (test_intake.IntakeTests.test_header_like_addresses_and_accidental_keys_rejected) ... ok
@@ -75,6 +82,8 @@ test_parallel_retry_one_record_and_one_mail (test_intake.IntakeTests.test_parall
 test_private_admin_inbox_status_filter_and_pagination (test_intake.IntakeTests.test_private_admin_inbox_status_filter_and_pagination) ... ok
 test_smtp_failure_preserves_record_and_can_retry (test_intake.IntakeTests.test_smtp_failure_preserves_record_and_can_retry) ... ok
 test_supplier_notifies_owner_without_customer_record_and_optional_files (test_intake.IntakeTests.test_supplier_notifies_owner_without_customer_record_and_optional_files) ... ok
+test_ephemeral_inquiry_save_is_disclosed_and_idempotent (test_intake.VercelIntakeTests.test_ephemeral_inquiry_save_is_disclosed_and_idempotent) ... ok
+test_registration_session_and_exact_retry_without_email_configuration (test_marketplace.ImmediatePublishingTests.test_registration_session_and_exact_retry_without_email_configuration) ... ok
 test_access_response_does_not_enumerate_accounts (test_marketplace.MarketplaceTests.test_access_response_does_not_enumerate_accounts) ... ok
 test_anonymous_routes_csrf_private_endpoints_and_legacy_creation (test_marketplace.MarketplaceTests.test_anonymous_routes_csrf_private_endpoints_and_legacy_creation) ... ok
 test_concurrent_confirmation_creates_one_session (test_marketplace.MarketplaceTests.test_concurrent_confirmation_creates_one_session) ... ok
@@ -129,6 +138,7 @@ test_social_graphic_dimensions (test_release_quality.ReleaseQualityTests.test_so
 test_static_compression_and_private_json_exclusion (test_release_quality.ReleaseQualityTests.test_static_compression_and_private_json_exclusion) ... ok
 test_structured_data_valid_and_not_fabricated_authority (test_release_quality.ReleaseQualityTests.test_structured_data_valid_and_not_fabricated_authority) ... ok
 test_webmaster_tokens_are_opt_in_escaped_and_home_only (test_release_quality.ReleaseQualityTests.test_webmaster_tokens_are_opt_in_escaped_and_home_only) ... ok
+test_vercel_default_path_and_cold_schema (test_suppliers.ColdStorageTests.test_vercel_default_path_and_cold_schema) ... ok
 test_admin_password_and_hash_only (test_suppliers.WorkflowTests.test_admin_password_and_hash_only) ... ok
 test_apply_contact_requirement (test_suppliers.WorkflowTests.test_apply_contact_requirement) ... ok
 test_attempt_limit (test_suppliers.WorkflowTests.test_attempt_limit) ... ok
@@ -152,6 +162,6 @@ test_review_race_conflict (test_suppliers.WorkflowTests.test_review_race_conflic
 test_unknown_access_non_enumerating (test_suppliers.WorkflowTests.test_unknown_access_non_enumerating) ... ok
 
 ----------------------------------------------------------------------
-Ran 149 tests in 9.864s
+Ran 159 tests in 11.675s
 
 OK

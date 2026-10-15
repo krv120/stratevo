@@ -85,7 +85,7 @@ if(byId('consume-link')){
 if(byId('portal-content')){
   const profileId=new URLSearchParams(location.search).get('application');
   if(profileId){byId('supplier-logout').hidden=true;byId('portal-status').textContent='Private manager view of an approved supplier.';}
-  request(profileId?'/api/admin/supplier-profile/'+encodeURIComponent(profileId):'/api/supplier/me').then(result=>{const row=result.application;byId('portal-content').hidden=false;details(byId('profile'),[['Company',row.company],['Contact',row.contact],['Email',row.email],['Country',row.country],['Category',row.category],['Capabilities',row.capabilities]]);}).catch(error=>{byId('portal-status').textContent=error.message+' Request a secure link from the supplier application page.';});
+  request(profileId?'/api/admin/supplier-profile/'+encodeURIComponent(profileId):'/api/supplier/me').then(result=>{if(result.redirect==='/supplier/account'){location.replace(result.redirect);return;}const row=result.application;byId('portal-content').hidden=false;details(byId('profile'),[['Company',row.company],['Contact',row.contact],['Email',row.email],['Country',row.country],['Category',row.category],['Capabilities',row.capabilities]]);}).catch(error=>{byId('portal-status').textContent=error.message+' Request a secure link from the supplier application page.';});
   byId('supplier-logout').onclick=async()=>{try{await request('/api/supplier/logout',{});location.href='/supplier#sign-in';}catch(error){byId('portal-status').textContent=error.message;}};
 }
 

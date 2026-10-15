@@ -3,4 +3,4 @@ PASS genuine local inquiry save, response-loss recovery, exact-once record/outbo
 PASS private manager inbox, source/details visibility, status update/filtering and owner-notification retry action
 PASS AI abort timeout and recovered input/new-chat state (clock advanced)
 Accessibility findings: []
-PASS 11 routes, 17 internal link targets, 320/390/768/1440/1920 layouts, direct refresh/back/forward and zero JS exceptions
+PASS 11 routes, 18 internal link targets, 320/390/768/1440/1920 layouts, direct refresh/back/forward and zero JS exceptions

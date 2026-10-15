@@ -1,5 +1,6 @@
 """STRATEVO HTTP adapter; persistent workflow lives in app.suppliers."""
 import hmac
+import ipaddress
 import hashlib
 import gzip
 import json
@@ -87,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = urlparse(self.path).path
-        aliases={'/rfq':'/assessment','/supplier-portal':'/supplier/account','/business-information':'/#launch-status'}
+        aliases={'/supplier.html':'/supplier','/supplier-account':'/supplier/account','/supplier-account.html':'/supplier/account','/marketplace.html':'/marketplace','/inquiry.html':'/inquiry','/assessment.html':'/assessment','/rfq':'/assessment','/supplier-portal':'/supplier/account','/business-information':'/#launch-status'}
         if route in aliases:return self.send(308,b'',headers={'Location':aliases[route]})
         if route=='/api/jobs/mail':return self.mail_job()
         if route.startswith('/api/marketplace/') or route == '/api/marketplace':
@@ -100,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/health':
             try:
                 with suppliers.database() as db:db.execute('SELECT COUNT(*) AS n FROM resource_locks').fetchone()
-                return self.send(200,{'ok':True,'database':'reachable','provider':'not_probed','mail':'not_probed'})
+                return self.send(200,{'ok':True,'database':'reachable','storage':settings.storage_status(),'provider':'not_probed','mail':'not_probed'})
             except Exception:return self.send(503,{'ok':False,'database':'unavailable','provider':'not_probed','mail':'not_probed'})
         if route == '/api/agent/status':
             try:
@@ -111,6 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         files = {'/fonts/inter-latin.woff2': ('fonts/inter-latin.woff2','font/woff2'), '/fonts/inter-greek.woff2': ('fonts/inter-greek.woff2','font/woff2'), '/visual.js': ('visual.js','application/javascript'), '/reference.css': ('reference.css','text/css'), '/': ('home.html', 'text/html; charset=utf-8'), '/supplier': ('supplier.html','text/html; charset=utf-8'), '/admin': ('admin.html','text/html; charset=utf-8'), '/access': ('access.html','text/html; charset=utf-8'), '/portal': ('portal.html','text/html; charset=utf-8'), '/site.js': ('site.js','application/javascript'), '/site.css': ('site.css','text/css'), '/ai': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}
         files.update({'/marketplace':('marketplace.html','text/html; charset=utf-8'), '/supplier/account':('supplier-account.html','text/html; charset=utf-8'), '/market.js':('market.js','application/javascript'), '/market.css':('market.css','text/css'), '/dialogs.js':('dialogs.js','application/javascript')})
         files.update({path:(name,'text/html; charset=utf-8') for path,name in [('/inquiry','inquiry.html'),('/privacy','privacy.html'),('/terms','terms.html')]})
+        files['/storage.js']=('storage.js','application/javascript')
         files['/intake.js']=('intake.js','application/javascript')
         files['/operations.js']=('operations.js','application/javascript')
         files.update({path:(name,mime) for path,name,mime in [('/assessment','assessment.html','text/html; charset=utf-8'),('/methodology','methodology.html','text/html; charset=utf-8'),('/cookies','cookies.html','text/html; charset=utf-8'),('/quality.css','quality.css','text/css'),('/assessment.js','assessment.js','application/javascript'),('/comparison.js','comparison.js','application/javascript'),('/stages.js','stages.js','application/javascript'),('/favicon.svg','favicon.svg','image/svg+xml'),('/images/stratevo-social.jpg','images/stratevo-social.jpg','image/jpeg')]})
@@ -130,24 +132,29 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('If-None-Match')==etag:return self.send(304,b'',mime,headers)
         return self.send(200,body,mime,headers)
 
+    def client_ip(self):
+        # Vercel overwrites these edge headers. Never trust them on arbitrary/self-hosted proxies.
+        if os.environ.get('VERCEL')=='1':
+            candidate=self.headers.get('X-Vercel-Forwarded-For') or self.headers.get('X-Forwarded-For','')
+            try:return str(ipaddress.ip_address(candidate.strip()))
+            except ValueError:pass  # Ambiguous chains are deliberately not trusted.
+        return self.client_address[0]
+
     def origin_allowed(self):
-        # Check scheme as well as authority; reject opaque/non-web origins and
-        # browser-declared cross-site requests even if Origin was omitted.
-        if self.headers.get('Sec-Fetch-Site') == 'cross-site':
-            return False
-        origin = self.headers.get('Origin')
-        if not origin:
-            return True  # Non-browser clients remain subject to endpoint authentication or public quotas.
+        if self.headers.get('Sec-Fetch-Site')=='cross-site':return False
+        value=self.headers.get('Origin')
+        if not value:return True  # Non-browser clients still need authentication/public quotas.
         try:
-            parsed = urlparse(origin)
-            if parsed.scheme not in ('https','http') or parsed.netloc != self.headers.get('Host') or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
-                return False
-            canonical = urlparse(os.environ.get('PUBLIC_BASE_URL',''))
-            if canonical.netloc == parsed.netloc and canonical.scheme == 'https' and parsed.scheme != 'https':
-                return False
-            return True
-        except ValueError:
-            return False
+            parsed=urlparse(value)
+            if parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:return False
+            if settings.environment() in ('local','test') and not os.environ.get('VERCEL'):
+                configured=urlparse(os.environ.get('PUBLIC_BASE_URL',''))
+                return parsed.scheme in ('http','https') and parsed.netloc==self.headers.get('Host') and not (configured.netloc==parsed.netloc and configured.scheme=='https' and parsed.scheme!='https')
+            allowed={'https://stratevo.online','https://www.stratevo.online'}
+            configured=os.environ.get('PUBLIC_BASE_URL','').strip().rstrip('/')
+            if configured and settings.origin('PUBLIC_BASE_URL')==configured:allowed.add(configured)
+            return parsed.scheme=='https' and value in allowed
+        except ValueError:return False
 
     def do_POST(self):
         route = urlparse(self.path).path
@@ -168,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {'error': 'Origin not allowed'})
         if public_route:
             try:
-                public_ai.throttle(self.client_address[0])
+                public_ai.throttle(self.client_ip())
             except suppliers.WorkflowError as error:
                 return self.send(error.status, {'error':str(error)}, headers={'Retry-After':'60'})
             except Exception:
@@ -229,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length=int(self.headers.get('Content-Length','0'))
             if not 0<length<=24000:return self.send(413,{'error':'Inquiry is too large or empty.'})
-            suppliers.rate_limit('inquiry-client:'+suppliers.digest(self.client_address[0]),10,3600)
+            suppliers.rate_limit('inquiry-client:'+suppliers.digest(self.client_ip()),10,3600)
             self.connection.settimeout(10)
             data=json.loads(self.rfile.read(length))
             if not isinstance(data,dict):raise ValueError()
@@ -273,7 +280,12 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length))
             if not isinstance(data,dict):raise ValueError()
             message_id=None
-            if route=='/api/marketplace/register':result,message_id=marketplace.register(data)
+            response_headers=None
+            if route=='/api/marketplace/register':
+                suppliers.rate_limit('register-client:'+suppliers.digest(self.client_ip()),10,3600)
+                result,message_id=marketplace.register(data,immediate=True)
+                token=result.pop('_session',None)
+                if token:response_headers=self.session_cookie(token)
             elif route=='/api/marketplace/request-access':result,message_id=marketplace.request_access(data)
             elif route=='/api/marketplace/consume':
                 result,token=marketplace.consume(data)
@@ -288,7 +300,7 @@ class Handler(BaseHTTPRequestHandler):
             if message_id and os.environ.get('SMTP_HOST') and os.environ.get('MAIL_FROM'):
                 try:suppliers.send_email_queue(limit=1,message_id=message_id)
                 except Exception:pass
-            return self.send(200,result)
+            return self.send(200,result,headers=response_headers)
         except suppliers.WorkflowError as error:
             return self.send(error.status,{'error':str(error)})
         except (ValueError,TypeError,UnicodeError):
@@ -336,7 +348,11 @@ class Handler(BaseHTTPRequestHandler):
                     document = suppliers.license_document(route.rsplit('/',1)[-1])
                     return self.send(200, document, 'application/octet-stream', {'Content-Disposition':'attachment; filename="business-license.pdf"', 'Content-Security-Policy':"sandbox; default-src 'none'"})
             elif route == '/api/supplier/me':
-                identity = suppliers.authenticate(self.session_token(), 'supplier')
+                identity = suppliers.authenticate(self.session_token())
+                if identity['role']=='publisher':
+                    marketplace.identity(self.session_token())
+                    return self.send(200,{'redirect':'/supplier/account'})
+                if identity['role']!='supplier':raise suppliers.WorkflowError('Supplier access required.',403)
                 return self.send(200, suppliers.profile(identity))
             return self.send(404, {'error':'Not found'})
         except suppliers.WorkflowError as error:

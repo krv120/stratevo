@@ -37,7 +37,7 @@ def capacity(db, kind, image_bytes=0):
     db.execute("UPDATE resource_locks SET name=name WHERE name='storage'")
     if kind=='account':
         n=db.execute('SELECT COUNT(*) AS n FROM market_accounts').fetchone()['n']
-        pending=db.execute('SELECT COUNT(*) AS n FROM market_accounts WHERE verified_at IS NULL').fetchone()['n']
+        pending=db.execute('SELECT COUNT(*) AS n FROM market_accounts WHERE verified_at IS NULL AND NOT EXISTS (SELECT 1 FROM market_publications mp WHERE mp.account_id=market_accounts.id)').fetchone()['n']
         if n>=limit('MAX_SUPPLIER_ACCOUNTS',2000,100000) or pending>=limit('MAX_PENDING_SUPPLIERS',500,10000):raise s.WorkflowError('Supplier registration capacity has been reached. Contact STRATEVO through the inquiry form.',503)
     if kind=='mail':
         if db.execute('SELECT COUNT(*) AS n FROM outbox').fetchone()['n']>=limit('MAX_OUTBOX_RECORDS',10000,100000):raise s.WorkflowError('Email queue storage is at capacity.',503)
@@ -81,7 +81,7 @@ def report(data):
     with s.database() as db:
         capacity(db,'lock')
         if db.execute('SELECT COUNT(*) AS n FROM listing_reports').fetchone()['n']>=10000:raise s.WorkflowError('Reporting is temporarily at capacity. Use the contact route.',503)
-        if not db.execute("SELECT p.id FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE p.id=? AND p.visibility='published' AND a.verified_at IS NOT NULL",(identifier,)).fetchone():raise s.WorkflowError('Product not found.',404)
+        if not db.execute("SELECT p.id FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE p.id=? AND p.visibility='published' AND (a.verified_at IS NOT NULL OR EXISTS (SELECT 1 FROM market_publications mp WHERE mp.account_id=a.id))",(identifier,)).fetchone():raise s.WorkflowError('Product not found.',404)
         db.execute('INSERT INTO listing_reports VALUES (?,?,?,\'new\',?)',(str(uuid.uuid4()),identifier,reason,s.now()))
     return {'message':'Report saved privately for review. No removal or response time is guaranteed.'}
 

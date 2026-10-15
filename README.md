@@ -1,3 +1,5 @@
+> **Current Vercel fix:** see [VERCEL-FIX-2026-10-15.md](VERCEL-FIX-2026-10-15.md) for changed immediate-publication behavior, automatic migrations and the limitations of ephemeral fallback. Earlier release results below are historical.
+
 # STRATEVO — reviewed source package
 
 > **Current release: 2026.10.13-rc1.** Start with `FINAL-RELEASE-2026-10-13.md`, `LIVE-SOURCE-COMPARISON-2026-10-13.md`, `SEARCH-AND-MEASUREMENT-HANDOFF.md` and `RELEASE-TESTING.md`. Older reports below are historical, not current production evidence. No production deployment is authorized by this release.

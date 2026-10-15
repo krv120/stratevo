@@ -105,7 +105,7 @@ def prune(apply=False):
             pending += [('customer',r['id']) for r in db.execute("SELECT id FROM customer_inquiries WHERE status='closed' AND created_at<? ORDER BY created_at LIMIT 100",(s.now()-policies['CLOSED_INQUIRIES']*86400,)).fetchall()]
         if policies['PENDING_SUPPLIERS']:
             threshold=s.now()-policies['PENDING_SUPPLIERS']*86400
-            pending += [('supplier',r['id']) for r in db.execute('SELECT id FROM market_accounts WHERE verified_at IS NULL AND created_at<? ORDER BY created_at LIMIT 100',(threshold,)).fetchall()]
+            pending += [('supplier',r['id']) for r in db.execute('SELECT id FROM market_accounts WHERE verified_at IS NULL AND NOT EXISTS (SELECT 1 FROM market_publications mp WHERE mp.account_id=market_accounts.id) AND created_at<? ORDER BY created_at LIMIT 100',(threshold,)).fetchall()]
             pending += [('legacy',r['id']) for r in db.execute("SELECT id FROM applications WHERE status='pending_email' AND created_at<? ORDER BY created_at LIMIT 100",(threshold,)).fetchall()]
         for kind,identifier in pending[:100]:
             result['closed_inquiries' if kind=='customer' else 'pending_suppliers']+=1

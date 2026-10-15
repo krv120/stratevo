@@ -1,7 +1,16 @@
 {
   "version": 2,
   "functions": {
-    "api/index.py": {"maxDuration": 60, "includeFiles": "web/**", "excludeFiles": "{private/**,tests/**,.env*,.git/**}"}
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{web/**,migrations/**}",
+      "excludeFiles": "{private/**,tests/**,validation/**,*.md,RELEASE-SCREENSHOTS.html,MANIFEST.json,.env*,.git/**}"
+    }
   },
-  "rewrites": [{"source": "/(.*)", "destination": "/api/index"}]
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
+  ]
 }

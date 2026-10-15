@@ -173,3 +173,69 @@ class HardeningTests(unittest.TestCase):
         m.register(application(product=product(title='ΠΡΟΪΟΝ ΣΤΗΡΙΞΗΣ')))
         m.consume({'token':token_for('account@example.invalid')})
         self.assertEqual(m.listings(query='προϊον')['total'],1)
+
+class VercelConfigurationTests(unittest.TestCase):
+    def test_url_priority_normalization_pooler_hints_and_tls(self):
+        with patch.dict(os.environ,{},clear=True):
+            for variable in reversed(settings.DATABASE_VARIABLES):
+                os.environ[variable]='postgres://user:encoded%40password@db.example.invalid/db?pgbouncer=true&connection_limit=2&supa=base&sslmode=disable&sslmode=require&application_name=test'
+                resolved=settings.database_url()
+                self.assertTrue(resolved.startswith('postgresql://'))
+                self.assertNotIn('pgbouncer',resolved);self.assertNotIn('connection_limit',resolved);self.assertNotIn('supa=',resolved)
+                self.assertIn('sslmode=require',resolved);self.assertNotIn('sslmode=disable',resolved)
+                self.assertIn('application_name=test',resolved)
+            os.environ['DATABASE_URL']='postgres://primary.invalid/db'
+            self.assertIn('primary.invalid',settings.database_url())
+            os.environ['DATABASE_URL']='  '
+            self.assertIn('db.example.invalid',settings.database_url())
+
+    def test_strict_and_environment_mismatch_still_fail_closed(self):
+        with patch.dict(os.environ,{'APP_ENV':'production','VERCEL':'1'},clear=True):
+            settings.database_guard()
+            self.assertEqual(settings.storage_status()['mode'],'ephemeral_fallback')
+            with patch.dict(os.environ,{'STRICT_PERSISTENT_DB':'true'}):
+                with self.assertRaises(ValueError):settings.database_guard()
+            with patch.dict(os.environ,{'POSTGRES_URL':'postgres://db.invalid/test','DATABASE_ENVIRONMENT':'preview'}):
+                with self.assertRaises(ValueError):settings.database_guard()
+
+    def test_pooler_connections_disable_preparation_and_use_transactions(self):
+        from app import connections
+        from unittest.mock import MagicMock
+        raw=MagicMock()
+        with patch.dict(os.environ,{'POSTGRES_URL':'postgres://db.invalid/test?pgbouncer=true'},clear=True),patch('psycopg.connect',return_value=raw) as connect,patch('app.connections._initialize'):
+            connections.open_database('/unused',dictionaries=True)
+            self.assertIsNone(connect.call_args.kwargs['prepare_threshold'])
+            self.assertIs(connect.call_args.kwargs['autocommit'],False)
+            self.assertEqual(connect.call_args.args[0],'postgresql://db.invalid/test?sslmode=require')
+        connections._READY.clear()
+
+    def test_vercel_ip_headers_are_not_trusted_on_arbitrary_hosts(self):
+        from app.server import Handler
+        handler=object.__new__(Handler);handler.client_address=('127.0.0.1',1)
+        handler.headers={'X-Forwarded-For':'203.0.113.8'}
+        with patch.dict(os.environ,{},clear=True):self.assertEqual(handler.client_ip(),'127.0.0.1')
+        with patch.dict(os.environ,{'VERCEL':'1'},clear=True):
+            self.assertEqual(handler.client_ip(),'203.0.113.8')
+            handler.headers={'X-Vercel-Forwarded-For':'2001:db8::7','X-Forwarded-For':'203.0.113.8'}
+            self.assertEqual(handler.client_ip(),'2001:db8::7')
+            handler.headers={'X-Forwarded-For':'spoof, 203.0.113.8'}
+            self.assertEqual(handler.client_ip(),'127.0.0.1')
+
+    def test_configured_database_failure_never_silently_switches_storage(self):
+        from app import connections
+        with patch.dict(os.environ,{'VERCEL':'1','POSTGRES_URL':'postgres://db.invalid/fixture'},clear=True),patch('psycopg.connect',side_effect=RuntimeError('synthetic failure')),patch('app.connections.sqlite3.connect') as sqlite:
+            with self.assertRaises(RuntimeError):connections.open_database('/unused')
+            sqlite.assert_not_called()
+
+    def test_production_origin_allowlist_rejects_spoof_and_cross_site(self):
+        from app.server import Handler
+        handler=object.__new__(Handler)
+        with patch.dict(os.environ,{'VERCEL':'1','VERCEL_ENV':'production'},clear=True):
+            for origin in ('https://stratevo.online','https://www.stratevo.online'):
+                handler.headers={'Origin':origin,'Host':'internal-worker.invalid'}
+                self.assertTrue(handler.origin_allowed())
+            for origin in ('https://evil.invalid','http://stratevo.online','https://stratevo.online.evil.invalid','null'):
+                handler.headers={'Origin':origin,'Host':origin.removeprefix('https://')}
+                self.assertFalse(handler.origin_allowed())
+            handler.headers={'Origin':'https://stratevo.online','Sec-Fetch-Site':'cross-site'}
+            self.assertFalse(handler.origin_allowed())

@@ -2,6 +2,7 @@
 const {chromium:playwright}=require('../private/browser/node_modules/playwright');
 const {default:AxeBuilder}=require('../private/browser/node_modules/@axe-core/playwright');
 const fs=require('node:fs'),assert=require('node:assert/strict'),{execFileSync}=require('node:child_process');
+fs.mkdirSync('private/audit-20261012',{recursive:true});
 const base='http://127.0.0.1:8002',email=`audit-${Date.now()}@example.invalid`;
 function saved(){return JSON.parse(execFileSync('python3',['-c',`import sqlite3,json,sys
 c=sqlite3.connect('private/browser-test.sqlite3');c.row_factory=sqlite3.Row

@@ -12,10 +12,31 @@
   function encode(file,maximum){if(!file||file.size===0||file.size>maximum)throw new Error(`Choose a non-empty file no larger than ${maximum===500000?'500 KB':'2 MB'}.`);return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=()=>reject(new Error('The selected file could not be read.'));r.readAsDataURL(file);});}
   async function product(form){const f=form.elements;return {title:f.title.value,description:f.description.value,category:f.category.value,location:f.location.value,unit:f.unit.value,moq:f.moq.value?Number(f.moq.value):null,price:f.price.value,currency:f.currency.value,content_consent:f.content_consent.checked,image:f.photo.files[0]?await encode(f.photo.files[0],500000):''};}
   function task(id,status,action){const form=el(id);if(!form)return;form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');if(button.disabled)return;button.disabled=true;el(status).textContent='Working…';try{await action(form);}catch(error){el(status).textContent=error.message;}finally{button.disabled=false;}});}
+  let registrationAttempt=null;
   task('market-register','market-register-status',async form=>{
     const f=form.elements,data={};for(const k of ['company','contact','email','country','city','whatsapp','wechat','license_number'])data[k]=f[k].value;
     data.consent=f.consent.checked;data.license_pdf='';data.product=await product(form);
-    await api('/api/marketplace/register',data);form.reset();form.hidden=true;el('market-register-success').hidden=false;el('market-register-success').focus();
+    // A random bearer idempotency key permits exact retries after response loss, never access by email alone.
+    const signature=JSON.stringify(data);
+    if(!registrationAttempt||registrationAttempt.signature!==signature)registrationAttempt={signature,key:Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('')};
+    data.submission_key=registrationAttempt.key;
+    const dialog=el('market-review');el('market-review-product').replaceChildren(node('h3',data.product.title),node('p',data.product.description),node('p',`Category: ${data.product.category}; MOQ: ${data.product.moq??'not supplied'} ${data.product.unit}; price: ${data.product.price||'not supplied'} ${data.product.currency}.`));
+    el('market-review-status').textContent='Review the public details. Company and contact fields remain private.';
+    dialog.showModal();el('market-register-status').textContent='Review your product before publishing.';
+    const publish=el('market-confirm-publish'),cancel=el('market-review-cancel');
+    publish.onclick=async()=>{
+      if(publish.disabled)return;publish.disabled=true;cancel.disabled=true;
+      const preventClose=e=>e.preventDefault();dialog.addEventListener('cancel',preventClose);
+      try{
+        const result=await api('/api/marketplace/register',data);
+        el('market-review-status').textContent=result.message;
+        if(!result.published)return;
+        registrationAttempt=null;form.reset();form.hidden=true;dialog.close();
+        const success=el('market-register-success');el('market-register-result').textContent=result.message;success.hidden=false;success.focus();
+      }catch(error){el('market-review-status').textContent=error.message+' Your details are retained. Retry Confirm and Publish without changing this review to recover the same submission.';}
+      finally{publish.disabled=false;cancel.disabled=false;dialog.removeEventListener('cancel',preventClose);}
+    };
+    cancel.onclick=()=>dialog.close();
   });
   task('market-access','market-access-status',async form=>{el('market-access-status').textContent=(await api('/api/marketplace/request-access',{email:form.elements.email.value})).message;});
   const categories={industrial:'Industrial components',packaging:'Packaging',consumer:'Consumer products',food:'Food & ingredients'};
@@ -35,12 +56,12 @@
     try{const query=new URLSearchParams({...filters,offset:append?nextOffset:0}),data=await api('/api/marketplace?'+query);if(run!==generation)return;
       if(!append)el('market-products').replaceChildren();data.products.forEach(p=>el('market-products').append(card(p)));nextOffset=data.offset+data.products.length;el('market-more').hidden=!data.has_more;
       el('market-status').textContent=`${data.total} ${data.total===1?'product':'products'} found.`;
-      if(!data.products.length&&!append){const empty=node('section',undefined,'market-empty');empty.append(node('h2','No products to display yet.'),node('p',filters.q||filters.category?'Try different keywords or another category.':'Supplier products appear here after email confirmation. We do not populate the Marketplace with invented listings.'));const link=node('a','List your first product ↗','secondary');link.href='/supplier';empty.append(link);el('market-products').append(empty);}
+      if(!data.products.length&&!append){const empty=node('section',undefined,'market-empty');empty.append(node('h2','No products to display yet.'),node('p',filters.q||filters.category?'Try different keywords or another category.':'Supplier products appear here after Confirm and Publish. We do not populate the Marketplace with invented listings.'));const link=node('a','List your first product ↗','secondary');link.href='/supplier';empty.append(link);el('market-products').append(empty);}
     }catch(error){if(run===generation){el('market-status').textContent=error.message;el('market-more').hidden=true;if(!append)el('market-products').replaceChildren();}}finally{if(run===generation)el('market-more').disabled=false;}
   }
   if(el('market-filter')){el('market-filter').onsubmit=event=>{event.preventDefault();filters={q:el('market-query').value.trim(),category:el('market-category').value};load();};el('market-more').onclick=()=>load(true);load();}
   async function account(){
-    try{const data=await api('/api/marketplace/me');el('market-account').hidden=false;el('market-account-status').textContent='Email-confirmed account. Business and product claims are not independently verified.';el('market-profile').textContent=data.profile.company;el('market-owned').replaceChildren(...data.products.map(p=>card(p,true)));if(!data.products.length)el('market-owned').append(node('p','No products yet. Add one below.'));
+    try{const data=await api('/api/marketplace/me');el('market-account').hidden=false;el('market-account-status').textContent=(data.email_confirmed?'Email confirmed. ':'Email not yet confirmed. This browser has a management session; email access requires a configured delivery service. ')+ 'Business and product claims are not independently verified. '+(data.storage?.warning||'');el('market-profile').textContent=data.profile.company;el('market-owned').replaceChildren(...data.products.map(p=>card(p,true)));if(!data.products.length)el('market-owned').append(node('p','No products yet. Add one below.'));
     }catch(error){el('market-account').hidden=true;el('market-account-status').replaceChildren(node('span',error.message+' '));const link=node('a','Request a secure email link.');link.href='/supplier#sign-in';el('market-account-status').append(link);}
   }
   if(el('market-account')){account();el('market-logout').onclick=async()=>{try{await api('/api/marketplace/logout',{});location.assign('/supplier#sign-in');}catch(error){el('market-account-status').textContent=error.message;}};}
@@ -49,14 +70,14 @@
   if(el('load-market-admin'))el('load-market-admin').onclick=async()=>{
     const button=el('load-market-admin');button.disabled=true;el('market-admin-status').textContent='Loading private registry…';
     try{const data=await api('/api/admin/marketplace?offset='+adminOffset);if(!adminOffset)el('market-admin-records').replaceChildren();el('market-admin-status').textContent=`${data.accounts.length} accounts shown (latest ${data.limit}). No manager approval required.`;adminOffset=data.has_more?data.offset+25:0;button.textContent=data.has_more?'Load more supplier accounts':'Refresh supplier registry';
-      for(const account of data.accounts){const section=node('section',undefined,'form-panel');section.append(node('h3',account.profile.company),node('p',account.email_confirmed?'Email confirmed — not business verified':'Email unconfirmed — products not public'));
+      for(const account of data.accounts){const section=node('section',undefined,'form-panel');section.append(node('h3',account.profile.company),node('p',account.email_confirmed?'Email confirmed — not business verified':account.publication_enabled?'Published — email unconfirmed':'Email unconfirmed — legacy products not public'));
         const reason=node('textarea');reason.setAttribute('aria-label','Suspension or restoration reason for '+account.profile.company);reason.maxLength=500;const suspend=node('button',account.suspended?'Restore account access':'Suspend account and hide listings','quiet');suspend.type='button';suspend.onclick=async()=>{suspend.disabled=true;try{el('market-admin-status').textContent=(await api('/api/admin/suspend',{id:account.id,suspended:!account.suspended,reason:reason.value})).message;}catch(error){el('market-admin-status').textContent=error.message;suspend.disabled=false;}};section.append(reason,suspend);
         const details=node('dl',undefined,'details');for(const [key,value] of Object.entries(account.profile)){details.append(node('dt',key.replaceAll('_',' ')),node('dd',value||'Not supplied'));}section.append(details);
         const document=node('a','Download private license (unscanned PDF)','secondary');document.href='/api/admin/market-license/'+encodeURIComponent(account.id);if(account.has_license)section.append(document);
         section.append(node('p','Submitted: '+new Date(account.created_at*1000).toLocaleString()));
         const review=node('select');review.setAttribute('aria-label','Review status for '+account.profile.company);for(const state of ['new','contacted','reviewed','declined']){const option=node('option',state);option.value=state;review.append(option);}review.value=account.review_status;
         const save=node('button','Save review status','quiet');save.type='button';save.onclick=async()=>{save.disabled=true;try{el('market-admin-status').textContent=(await api('/api/admin/supplier-status',{id:account.id,status:review.value})).message;}catch(error){el('market-admin-status').textContent=error.message;}finally{save.disabled=false;}};section.append(review,save);
-        for(const p of account.products){const row=node('div',undefined,'form-panel');row.append(node('h4',p.title),node('p',`${p.reference} · ${account.email_confirmed?p.visibility:'not public: email unconfirmed'}`));if(p.visibility==='published'){const hide=node('button','Remove listing','quiet');hide.type='button';hide.onclick=async()=>{hide.disabled=true;try{await api('/api/admin/hide-product',{id:p.id});row.append(node('p','Listing removed from the public Marketplace.'));}catch(error){el('market-admin-status').textContent=error.message;hide.disabled=false;}};row.append(hide);}section.append(row);}el('market-admin-records').append(section);
+        for(const p of account.products){const row=node('div',undefined,'form-panel');row.append(node('h4',p.title),node('p',`${p.reference} · ${account.publication_enabled?p.visibility:'not public: legacy email confirmation pending'}`));if(p.visibility==='published'){const hide=node('button','Remove listing','quiet');hide.type='button';hide.onclick=async()=>{hide.disabled=true;try{await api('/api/admin/hide-product',{id:p.id});row.append(node('p','Listing removed from the public Marketplace.'));}catch(error){el('market-admin-status').textContent=error.message;hide.disabled=false;}};row.append(hide);}section.append(row);}el('market-admin-records').append(section);
       }
     }catch(error){el('market-admin-status').textContent=error.message;}finally{button.disabled=false;}
   };

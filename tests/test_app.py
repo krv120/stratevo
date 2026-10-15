@@ -170,3 +170,55 @@ class HTTPTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class VercelAdapterTests(unittest.TestCase):
+    def test_real_adapter_without_postgres_publishes_manages_and_blocks_internal_files(self):
+        import base64
+        import json
+        import tempfile
+        import threading
+        from pathlib import Path
+        from http.server import ThreadingHTTPServer
+        from unittest.mock import patch
+        import urllib.request
+        import urllib.error
+        from api.index import handler
+        from app import connections, suppliers, admin_auth
+        from test_marketplace import application, product
+        from test_intake import inquiry
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'VERCEL':'1','VERCEL_ENV':'production'},clear=True),patch.object(connections,'RUNTIME_SQLITE',Path(folder)/'runtime.sqlite3'):
+            server=ThreadingHTTPServer(('127.0.0.1',0),handler)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            def request(route,payload=None,cookie='',origin='https://www.stratevo.online'):
+                req=urllib.request.Request('http://127.0.0.1:'+str(server.server_port)+route,data=json.dumps(payload).encode() if payload is not None else None,headers={'Content-Type':'application/json','Origin':origin,'Cookie':cookie,'X-Vercel-Forwarded-For':'203.0.113.10'})
+                try:r=urllib.request.urlopen(req)
+                except urllib.error.HTTPError as e:r=e
+                with r:return r.status,r.read(),r.headers
+            try:
+                status,body,_=request('/api/health');self.assertEqual(status,200);self.assertEqual(json.loads(body)['storage']['mode'],'ephemeral_fallback')
+                status,body,headers=request('/api/marketplace/register',application(submission_key='vercel-test-key-12345678901234567890'))
+                self.assertEqual(status,200);self.assertTrue(json.loads(body)['published']);self.assertIn('Secure',headers['Set-Cookie'])
+                cookie=headers['Set-Cookie'].split(';')[0]
+                self.assertEqual(request('/api/marketplace/me',cookie=cookie)[0],200)
+                self.assertEqual(json.loads(request('/api/marketplace')[1])['total'],1)
+                self.assertEqual(request('/api/marketplace/products',product(title='Second synthetic product'),cookie=cookie)[0],200)
+                self.assertEqual(request('/api/inquiries',inquiry(source='assessment'))[0],200)
+                self.assertEqual(request('/api/marketplace/register',application('other@example.invalid'),origin='https://evil.invalid')[0],403)
+                self.assertEqual(request('/api/admin/marketplace')[0],401)
+                # Production named-admin MFA remains enforced, even with ephemeral storage.
+                seed=base64.b32encode(b'synthetic-test-admin-seed-01').decode();password='synthetic-testing-password-only'
+                account={'id':'test-admin','password_hash':suppliers.hash_password(password),'totp_secret':seed}
+                with patch.dict(os.environ,{'ADMIN_ACCOUNTS_JSON':json.dumps([account])}):
+                    status,_,headers=request('/api/admin/login',{'username':'test-admin','password':password,'otp':admin_auth.code(seed,suppliers.now()//30)})
+                    self.assertEqual(status,200)
+                    admin_cookie=headers['Set-Cookie'].split(';')[0]
+                    self.assertEqual(request('/api/admin/marketplace',cookie=admin_cookie)[0],200)
+                    self.assertEqual(request('/api/admin/inquiries',cookie=admin_cookie)[0],200)
+                for route in ('/supplier.html','/supplier-account','/supplier-account.html','/portal','/assessment'):
+                    self.assertEqual(request(route,cookie=cookie)[0],200)
+                for route in ('/OPERATIONS-HANDOFF.md','/FINAL-RELEASE-2026-10-13.md','/RELEASE-SCREENSHOTS.html','/validation/unit-tests.log','/private/database.sqlite3','/migrations/001_private_platform.sql'):
+                    self.assertEqual(request(route)[0],404)
+                with patch.dict(os.environ,{'STRICT_PERSISTENT_DB':'true'}):
+                    self.assertEqual(request('/api/health')[0],503)
+                    self.assertEqual(request('/api/marketplace/register',application())[0],503)
+            finally:server.shutdown();server.server_close();thread.join()

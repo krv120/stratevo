@@ -13,3 +13,9 @@ tests/
 validation/
 MANIFEST.json
 RELEASE-SCREENSHOTS.html
+
+# Internal engineering and release documents are never production assets.
+*.md
+**/*-AUDIT*.md
+FINAL-RELEASE*.md
+OPERATIONS-HANDOFF.md

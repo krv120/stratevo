@@ -16,6 +16,13 @@ CREATE TABLE IF NOT EXISTS market_tokens (
  digest TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES market_accounts(id),
  expires_at BIGINT NOT NULL, used_at BIGINT
 );
+
+CREATE TABLE IF NOT EXISTS market_publications (
+ account_id TEXT PRIMARY KEY REFERENCES market_accounts(id) ON DELETE CASCADE,
+ submission_digest TEXT NOT NULL UNIQUE, payload_digest TEXT NOT NULL, created_at BIGINT NOT NULL
+);
+ALTER TABLE market_publications ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON market_publications FROM PUBLIC;
 CREATE INDEX IF NOT EXISTS market_product_owner ON market_products(owner_id);
 CREATE INDEX IF NOT EXISTS market_token_expiry ON market_tokens(expires_at);
 

@@ -137,3 +137,17 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(error.exception.code,'configuration');network.assert_not_called()
 
 if __name__=='__main__':unittest.main()
+
+class VercelIntakeTests(unittest.TestCase):
+    def test_ephemeral_inquiry_save_is_disclosed_and_idempotent(self):
+        import tempfile
+        from pathlib import Path
+        from app import connections, settings
+        from unittest.mock import patch
+        import os
+        payload={'submission_key':'test-only-inquiry-key-123456789012345','name':'Synthetic Buyer','business':'','product':'Synthetic packaging','requirements':'Synthetic integration test requirements only.','destination':'Greece','quantity':'100 pieces','budget':'','timeline':'','contact':'','email':'test@example.invalid','source':'assessment','consent':True,'website_confirm':''}
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'VERCEL':'1','APP_ENV':'production'},clear=True),patch.object(connections,'RUNTIME_SQLITE',Path(folder)/'runtime.sqlite3'):
+            first=intake.submit(payload);second=intake.submit(payload)
+            self.assertEqual(first['id'],second['id']);self.assertTrue(first['saved'])
+            self.assertEqual(first['storage']['mode'],'ephemeral_fallback')
+            self.assertIn('Temporary',first['message'])

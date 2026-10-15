@@ -17,7 +17,7 @@
    // After an ambiguous failure preserve the exact submitted payload/key for safe retry.
    if(pending&&JSON.stringify(data)!==JSON.stringify(pending)){$('inquiry-restore').hidden=false;$('inquiry-status').textContent='Your previous submission result is uncertain. Restore the submitted details and retry, or use the booking link before sending a different inquiry.';return;}
    pending=data;window.StratevoStages?.emit('inquiry_submitting');button.disabled=true;$('inquiry-status').textContent='Saving your inquiry…';
-   try{const result=await api('/api/inquiries',data);if(!result.saved||!result.id)throw new Error('The server did not confirm a saved inquiry. Please retry.');window.StratevoStages?.emit('inquiry_saved');form.hidden=true;$('inquiry-reference').textContent='Reference: '+result.id;$('inquiry-success').hidden=false;$('inquiry-success').focus();form.reset();pending=null;
+   try{const result=await api('/api/inquiries',data);if(!result.saved||!result.id)throw new Error('The server did not confirm a saved inquiry. Please retry.');window.StratevoStages?.emit('inquiry_saved');form.hidden=true;$('inquiry-reference').textContent='Reference: '+result.id;$('inquiry-result').textContent=result.message||'';$('inquiry-success').hidden=false;$('inquiry-success').focus();form.reset();pending=null;
    }catch(error){if([400,413,415,429].includes(error.status))pending=null;$('inquiry-status').textContent=error.message;/* Keep fields/key for retries. */}finally{button.disabled=false;}
   });
  }

@@ -165,3 +165,19 @@ class WorkflowTests(unittest.TestCase):
             server.shutdown();server.server_close();thread.join()
 
 if __name__=='__main__':unittest.main()
+
+class ColdStorageTests(unittest.TestCase):
+    def test_vercel_default_path_and_cold_schema(self):
+        from app import connections, catalog
+        with patch.dict(os.environ,{'VERCEL':'1','APP_ENV':'production'},clear=True):
+            self.assertEqual(str(connections.sqlite_path(s.DATABASE)),'/tmp/stratevo_runtime.sqlite3')
+            with tempfile.TemporaryDirectory() as directory,patch.object(connections,'RUNTIME_SQLITE',Path(directory)/'runtime.sqlite3'):
+                # No initialize() call: both subsystems must bootstrap before their first query.
+                self.assertEqual(catalog.count(),0)
+                with s.database() as db:
+                    for table in ('applications','market_accounts','market_publications','customer_inquiries','discovery_budget','admin_totp','records'):
+                        self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM '+table).fetchone()['n'],0)
+                self.assertEqual((Path(directory)/'runtime.sqlite3').stat().st_mode & 0o777,0o600)
+                s.initialize();s.initialize()
+                with patch.dict(os.environ,{'STRICT_PERSISTENT_DB':'true'}):
+                    with self.assertRaises(s.WorkflowError):s.initialize()

@@ -18,8 +18,6 @@ from urllib.parse import urlparse
 
 PRIVATE = Path(__file__).resolve().parents[1] / 'private'
 DATABASE = Path(os.environ.get('SUPPLIER_SQLITE_PATH', str(PRIVATE / 'suppliers.sqlite3'))).resolve()
-if not DATABASE.is_relative_to(PRIVATE.resolve()):
-    raise ValueError('Local supplier database must be inside private/')
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS applications (
  id TEXT PRIMARY KEY, company TEXT NOT NULL, contact TEXT NOT NULL,
@@ -66,25 +64,12 @@ class DB:
 
 @contextmanager
 def database():
-    from app import settings
-    try:settings.database_guard()
-    except ValueError:raise WorkflowError('Database/deployment isolation configuration is invalid.',503) from None
-    url = os.environ.get('DATABASE_URL')
-    if url:
-        import psycopg
-        from psycopg.rows import dict_row
-        raw = psycopg.connect(url, row_factory=dict_row, connect_timeout=10)
-        raw.execute('SET search_path TO stratevo_private')
-    else:
-        PRIVATE.mkdir(exist_ok=True, mode=0o700)
-        raw = sqlite3.connect(DATABASE, timeout=15)
-        os.chmod(DATABASE, 0o600)
-        raw.row_factory = sqlite3.Row
-        raw.create_function('LOWER',1,lambda value: value.lower() if isinstance(value,str) else value,deterministic=True)
-        raw.execute('PRAGMA foreign_keys=ON')
-        raw.execute('BEGIN IMMEDIATE')
+    from app import connections
+    try:raw,postgres=connections.open_database(DATABASE,dictionaries=True)
+    except ValueError:raise WorkflowError('Storage configuration is invalid. Check strict storage mode and deployment settings.',503) from None
     try:
-        yield DB(raw, bool(url))
+        if not postgres:raw.execute('BEGIN IMMEDIATE')
+        yield DB(raw, postgres)
         raw.commit()
     except Exception:
         raw.rollback()
@@ -94,26 +79,8 @@ def database():
 
 
 def initialize():
-    from app.marketplace import SCHEMA as MARKET_SCHEMA
-    from app.public_ai import SCHEMA as PUBLIC_AI_SCHEMA
-    from app.intake import SCHEMA as INTAKE_SCHEMA, TABLES
-    from app.controls import SCHEMA as CONTROL_SCHEMA, TABLES as CONTROL_TABLES
-    with database() as db:
-        if db.postgres:
-            db.execute('CREATE SCHEMA IF NOT EXISTS stratevo_private')
-            db.execute('REVOKE ALL ON SCHEMA stratevo_private FROM PUBLIC')
-        for statement in (SCHEMA + MARKET_SCHEMA + PUBLIC_AI_SCHEMA + INTAKE_SCHEMA + CONTROL_SCHEMA).split(';'):
-            if statement.strip():
-                db.execute(statement)
-        if db.postgres:
-            # Fresh initialization must be private too, not only migrated installs.
-            for table in ('applications','tokens','sessions','audit','outbox','rate_limits','market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots') + TABLES + CONTROL_TABLES:
-                db.execute('ALTER TABLE ' + table + ' ENABLE ROW LEVEL SECURITY')
-                db.execute('REVOKE ALL ON ' + table + ' FROM PUBLIC')
-            for role in ('anon','authenticated'):
-                if db.execute('SELECT 1 FROM pg_roles WHERE rolname=?',(role,)).fetchone():
-                    db.execute('REVOKE ALL ON SCHEMA stratevo_private FROM ' + role)
-                    db.execute('REVOKE ALL ON ALL TABLES IN SCHEMA stratevo_private FROM ' + role)
+    # database() initializes all workflow, research and usage-control tables before yielding.
+    with database():pass
 
 
 def now(): return int(time.time())

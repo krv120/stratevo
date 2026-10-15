@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime, timezone
 from urllib.parse import urlencode, urlsplit
 
-from app import catalog
+from app import catalog, settings
 from app.matching import validate, BOOKING
 from app.privacy import buyer_safe
 
@@ -22,7 +22,7 @@ def configured():
 def initialize(connection):
     connection.execute('CREATE TABLE IF NOT EXISTS discovery_evidence (id TEXT PRIMARY KEY, searched_at TEXT NOT NULL, evidence TEXT NOT NULL)')
     connection.execute('CREATE TABLE IF NOT EXISTS discovery_budget (day TEXT PRIMARY KEY, calls INTEGER NOT NULL)')
-    if os.environ.get('DATABASE_URL'):
+    if settings.database_url():
         for table in ('discovery_evidence','discovery_budget'):
             connection.execute('ALTER TABLE ' + table + ' ENABLE ROW LEVEL SECURITY')
             connection.execute('REVOKE ALL ON ' + table + ' FROM PUBLIC')
@@ -37,7 +37,6 @@ def reserve(db):
     connection = catalog.connect(db)
     try:
         with connection:
-            initialize(connection)
             row = connection.execute('INSERT INTO discovery_budget(day,calls) VALUES (?,1) ON CONFLICT(day) DO UPDATE SET calls=discovery_budget.calls+1 WHERE discovery_budget.calls < ? RETURNING calls', (datetime.now(timezone.utc).date().isoformat(), limit)).fetchone()
             return bool(row)
     finally:
@@ -105,7 +104,6 @@ def owner_evidence(db=catalog.DB):
     connection=catalog.connect(db)
     try:
         with connection:
-            initialize(connection)
             rows=connection.execute('SELECT id,searched_at,evidence FROM discovery_evidence ORDER BY searched_at DESC LIMIT 100').fetchall()
         return [{'reference':row[0],'searched_at':row[1],**json.loads(row[2])} for row in rows]
     finally:connection.close()

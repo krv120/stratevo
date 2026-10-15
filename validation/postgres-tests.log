@@ -10,3 +10,7 @@ PASS PostgreSQL RLS protection of all marketplace and public AI internal tables
 PASS PostgreSQL inquiry retry races, owner-notification recovery races, private status filtering and new-table RLS
 PASS PostgreSQL processing leases, SQL search escaping, suspension/restoration and guarded privacy erasure
 PASS anon/authenticated role denial and RLS protection of applications and discovery evidence
+/home/user/stratevo/.venv/lib/python3.11/site-packages/platformdirs/api.py:459: RuntimeDirWarning: XDG_RUNTIME_DIR is not set, falling back to /tmp/runtime-1001
+  return Path(self.user_runtime_dir)
+PASS cold PostgreSQL initialization via POSTGRES_URL, all five migrations, concurrent startup and repeated non-prepared queries
+PASS PostgreSQL exact-retry immediate publication, management sessions, rollback, suspension and nondestructive migration reapplication

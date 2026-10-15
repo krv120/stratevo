@@ -1,17 +1,17 @@
 {
   "errors": [],
-  "generated_at": "2026-10-15T17:22:23Z",
+  "generated_at": "2026-10-15T19:51:03Z",
   "metrics": {
     "_totals": {
       "CONFIDENCE.HIGH": 1,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 5,
+      "CONFIDENCE.MEDIUM": 6,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
       "SEVERITY.LOW": 1,
-      "SEVERITY.MEDIUM": 5,
+      "SEVERITY.MEDIUM": 6,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 2555,
+      "loc": 2665,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -24,7 +24,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 12,
+      "loc": 4,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -63,20 +63,20 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 163,
+      "loc": 143,
       "nosec": 0,
       "skipped_tests": 0
     },
     "app/connections.py": {
       "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.MEDIUM": 1,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
       "SEVERITY.LOW": 0,
-      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.MEDIUM": 1,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 30,
+      "loc": 111,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -102,7 +102,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 94,
+      "loc": 92,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -115,7 +115,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 1,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 133,
+      "loc": 135,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -167,7 +167,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 2,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 244,
+      "loc": 288,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -232,7 +232,7 @@
       "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 1,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 375,
+      "loc": 391,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -245,7 +245,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 48,
+      "loc": 78,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -258,7 +258,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 342,
+      "loc": 309,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -343,7 +343,27 @@
   },
   "results": [
     {
-      "code": "119     with s.database() as db:\n120         rows=db.execute('SELECT c.*,j.outbox_id,o.sent_at,o.attempts FROM customer_inquiries c LEFT JOIN notification_jobs j ON j.entity_type=\\'customer\\' AND j.entity_id=c.id LEFT JOIN outbox o ON o.id=j.outbox_id'+where+' ORDER BY c.created_at DESC,c.id LIMIT 26 OFFSET ?',tuple(args+[offset])).fetchall()\n121     return {'inquiries':[{'id':r['id'],'created_at':r['created_at'],'status':r['status'],'details':json.loads(r['payload']),'consent_version':r['consent_version'],'notification':notification_state(dict(r))} for r in rows[:25]],'has_more':len(rows)>25,'offset':offset}\n",
+      "code": "45 \n46 RUNTIME_SQLITE = Path('/tmp/stratevo_runtime.sqlite3')\n47 _MIGRATION_LOCK = threading.Lock()\n",
+      "col_offset": 22,
+      "end_col_offset": 53,
+      "filename": "app/connections.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 377,
+        "link": "https://cwe.mitre.org/data/definitions/377.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Probable insecure usage of temp file/directory.",
+      "line_number": 46,
+      "line_range": [
+        46
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html",
+      "test_id": "B108",
+      "test_name": "hardcoded_tmp_directory"
+    },
+    {
+      "code": "121     with s.database() as db:\n122         rows=db.execute('SELECT c.*,j.outbox_id,o.sent_at,o.attempts FROM customer_inquiries c LEFT JOIN notification_jobs j ON j.entity_type=\\'customer\\' AND j.entity_id=c.id LEFT JOIN outbox o ON o.id=j.outbox_id'+where+' ORDER BY c.created_at DESC,c.id LIMIT 26 OFFSET ?',tuple(args+[offset])).fetchall()\n123     return {'inquiries':[{'id':r['id'],'created_at':r['created_at'],'status':r['status'],'details':json.loads(r['payload']),'consent_version':r['consent_version'],'notification':notification_state(dict(r))} for r in rows[:25]],'has_more':len(rows)>25,'offset':offset}\n",
       "col_offset": 24,
       "end_col_offset": 215,
       "filename": "app/intake.py",
@@ -354,9 +374,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 120,
+      "line_number": 122,
       "line_range": [
-        120
+        122
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
@@ -383,7 +403,7 @@
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "199         where=' AND '.join(clauses)\n200         total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']\n201         rows=db.execute(\"SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE \"+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()\n",
+      "code": "247         where=' AND '.join(clauses)\n248         total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']\n249         rows=db.execute(\"SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE \"+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()\n",
       "col_offset": 25,
       "end_col_offset": 119,
       "filename": "app/marketplace.py",
@@ -394,16 +414,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 200,
+      "line_number": 248,
       "line_range": [
-        200
+        248
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "200         total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']\n201         rows=db.execute(\"SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE \"+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()\n202     return {'products':[public_product(row) for row in rows],'total':total,'has_more':total>offset+24,'offset':offset,'notice':NOTICE,'scan_limit':None}\n",
+      "code": "248         total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']\n249         rows=db.execute(\"SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE \"+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()\n250     return {'products':[public_product(row) for row in rows],'total':total,'has_more':total>offset+24,'offset':offset,'notice':NOTICE,'scan_limit':None}\n",
       "col_offset": 24,
       "end_col_offset": 179,
       "filename": "app/marketplace.py",
@@ -414,16 +434,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 201,
+      "line_number": 249,
       "line_range": [
-        201
+        249
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "289                 try:suppliers.send_email_queue(limit=1,message_id=message_id)\n290                 except Exception:pass\n291             return self.send(200,result)\n",
+      "code": "301                 try:suppliers.send_email_queue(limit=1,message_id=message_id)\n302                 except Exception:pass\n303             return self.send(200,result,headers=response_headers)\n",
       "col_offset": 16,
       "end_col_offset": 37,
       "filename": "app/server.py",
@@ -434,16 +454,16 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 290,
+      "line_number": 302,
       "line_range": [
-        290
+        302
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "405     suppliers.initialize()\n406     ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8000'))), Handler).serve_forever()\n",
+      "code": "421     suppliers.initialize()\n422     ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8000'))), Handler).serve_forever()\n",
       "col_offset": 25,
       "end_col_offset": 34,
       "filename": "app/server.py",
@@ -454,9 +474,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 406,
+      "line_number": 422,
       "line_range": [
-        406
+        422
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
