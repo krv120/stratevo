@@ -199,4 +199,3 @@ class AdminAliasTests(unittest.TestCase):
             self.assertEqual(self.http('/api/suppliers',payload)[0],200)
             self.assertEqual(self.http('/api/suppliers',payload)[0],200)
             self.assertEqual(find.call_count,1)
-
