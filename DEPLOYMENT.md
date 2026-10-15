@@ -1,3 +1,5 @@
+> **Current AI/operations upgrade:** read [AI-OPERATIONS-RELEASE-2026-10-15.md](AI-OPERATIONS-RELEASE-2026-10-15.md). It supersedes earlier AI, notification and manager behavior. This candidate is not live-provider/mail certified.
+
 > **Current Vercel fix:** see [VERCEL-FIX-2026-10-15.md](VERCEL-FIX-2026-10-15.md) for changed immediate-publication behavior, automatic migrations and the limitations of ephemeral fallback. Earlier release results below are historical.
 
 # Deployment handoff — Vercel + private PostgreSQL/Supabase

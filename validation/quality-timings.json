@@ -1,44 +1,44 @@
 [
   {
     "route": "/",
-    "domContentLoadedMs": 42.4000000001397,
-    "transferBytes": 10950,
-    "resources": 9
+    "domContentLoadedMs": 36.10000000009313,
+    "transferBytes": 12163,
+    "resources": 10
   },
   {
     "route": "/assessment",
-    "domContentLoadedMs": 58.10000000009313,
-    "transferBytes": 10767,
-    "resources": 13
+    "domContentLoadedMs": 44.8000000002794,
+    "transferBytes": 11802,
+    "resources": 14
   },
   {
     "route": "/methodology",
-    "domContentLoadedMs": 37.800000000046566,
+    "domContentLoadedMs": 37.8000000002794,
     "transferBytes": 12802,
     "resources": 10
   },
   {
     "route": "/cookies",
-    "domContentLoadedMs": 35.5999999998603,
+    "domContentLoadedMs": 37.700000000186265,
     "transferBytes": 8151,
     "resources": 9
   },
   {
     "route": "/inquiry",
-    "domContentLoadedMs": 39.199999999953434,
+    "domContentLoadedMs": 38.60000000009313,
     "transferBytes": 10792,
     "resources": 13
   },
   {
     "route": "/supplier",
-    "domContentLoadedMs": 42.39999999990687,
-    "transferBytes": 13618,
-    "resources": 12
+    "domContentLoadedMs": 24.899999999906868,
+    "transferBytes": 16275,
+    "resources": 13
   },
   {
     "route": "/ai",
-    "domContentLoadedMs": 40.700000000186265,
-    "transferBytes": 9843,
-    "resources": 11
+    "domContentLoadedMs": 56.5,
+    "transferBytes": 10878,
+    "resources": 12
   }
 ]

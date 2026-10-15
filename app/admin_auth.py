@@ -8,12 +8,22 @@ import json
 import os
 import re
 import struct
+from functools import lru_cache
 from app import suppliers as s, settings
+
+
+@lru_cache(maxsize=16)
+def environment_hash(secret):
+    return s.hash_password(secret,salt=hashlib.sha256(('env-admin:'+secret).encode()).hexdigest()[:32])
 
 
 def accounts():
     raw=os.environ.get('ADMIN_ACCOUNTS_JSON','')
-    if not raw:return {}
+    if not raw:
+        secret=next((os.environ[n] for n in ('ADMIN_TOKEN','STRATEVO_ADMIN_TOKEN','ADMIN_PASSWORD') if os.environ.get(n)), '')
+        if not secret:return {}
+        if len(secret)<(16 if not os.environ.get('ADMIN_TOKEN') and not os.environ.get('STRATEVO_ADMIN_TOKEN') else 32):raise s.WorkflowError('Admin secret is too short. Set a strong hosting secret.',503)
+        raw=json.dumps([{'id':'owner','password_hash':environment_hash(secret),'totp_secret':os.environ.get('ADMIN_TOTP_SECRET','')}])
     try:
         rows=json.loads(raw)
         if not isinstance(rows,list) or not 1<=len(rows)<=20:raise ValueError()
@@ -41,7 +51,7 @@ def login(data):
     if not configured:
         if settings.environment()=='production':raise s.WorkflowError('Named administrator accounts with MFA must be configured.',503)
         return None
-    username=data.get('username')
+    username=data.get('username') or ('owner' if set(configured)=={'owner'} else '')
     row=configured.get(username) if isinstance(username,str) else None
     password=s.field(data,'password',maximum=300)
     # Use a valid dummy hash when the name is unknown to keep password work comparable.

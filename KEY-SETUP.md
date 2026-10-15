@@ -1,3 +1,5 @@
+> **Current AI/operations upgrade:** read [AI-OPERATIONS-RELEASE-2026-10-15.md](AI-OPERATIONS-RELEASE-2026-10-15.md). It supersedes earlier AI, notification and manager behavior. This candidate is not live-provider/mail certified.
+
 # Connect the AI and supplier accounts
 
 > **Current release: 2026.10.13-rc1.** Start with `FINAL-RELEASE-2026-10-13.md`, `LIVE-SOURCE-COMPARISON-2026-10-13.md`, `SEARCH-AND-MEASUREMENT-HANDOFF.md` and `RELEASE-TESTING.md`. Older reports below are historical, not current production evidence. No production deployment is authorized by this release.

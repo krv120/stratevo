@@ -64,3 +64,14 @@ PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --postgres
 ```
 
 The HTTPS browser runner requires the local `openssl` command. It creates a one-day self-signed certificate and isolated synthetic database under `private/`, starts the actual Vercel adapter on a random loopback port, then shuts it down and removes its temporary fixture. No live services or real credentials are used. The original three browser suites still target the isolated port-8002 test server described above.
+
+## AI/operations release verification
+
+Current report: `AI-OPERATIONS-RELEASE-2026-10-15.md`. Run the normal full unit suite and both PostgreSQL scripts, then all existing browser suites. Additionally:
+
+```sh
+PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --engine
+PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --engine --postgres
+```
+
+The engine scenario uses real local HTTPS, real persistence/admin authentication and explicitly synthetic external AI/mail responses. It is not a live-provider or inbox-delivery test. The runner requires local OpenSSL and the existing test-only Playwright/Chromium/axe tooling. No extra production dependencies are needed. Existing browser-suite fixtures must be isolated and fresh enough not to reuse exhausted quotas; never lower production limits to make tests pass.

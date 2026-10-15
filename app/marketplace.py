@@ -92,7 +92,8 @@ def product_data(data, profile):
     location=clean_text(s.field(data,'location',minimum=0,maximum=100),profile)
     unit=s.field(data,'unit',maximum=30)
     if unit not in ('pieces','sets','kilograms','litres','metres'):raise s.WorkflowError('Choose a selling unit.')
-    quantity=data.get('moq')
+    from app.normalization import quantity as normalize_quantity
+    quantity=normalize_quantity(data.get('moq'))
     if quantity is not None and (isinstance(quantity,bool) or not isinstance(quantity,(int,float)) or not math.isfinite(quantity) or not 0<quantity<=1e9):raise s.WorkflowError('MOQ must be a positive number.')
     price=data.get('price','')
     currency=data.get('currency','')
@@ -112,6 +113,10 @@ def product_data(data, profile):
 
 
 def private_profile(data):
+    data=dict(data)
+    for key in ('phone','employees','founded_year','lead_time'):
+        value=data.get(key)
+        if type(value) in (int,float) and math.isfinite(value):data[key]=str(int(value)) if float(value).is_integer() else str(value)
     profile={key:s.field(data,key,maximum=maximum) for key,maximum in [('company',200),('contact',200),('country',100),('city',100)]}
     profile['email']=s.email_address(data)
     profile['whatsapp']=s.field(data,'whatsapp',minimum=0,maximum=60)
@@ -121,6 +126,14 @@ def private_profile(data):
     if data.get('license_pdf'):
         raise s.WorkflowError('Document uploads are disabled until malware scanning and quarantine are implemented. Submit without a document.',503)
     profile['license_pdf']=''
+    from app import normalization
+    profile['website']=normalization.website(data.get('website',''))
+    for key,maximum in [('phone',80),('capabilities',3000),('lead_time',150),('employees',100),('founded_year',4)]:
+        profile[key]=s.field(data,key,minimum=0,maximum=maximum)
+    if profile['founded_year']:
+        import datetime
+        if not profile['founded_year'].isdigit() or not 1000<=int(profile['founded_year'])<=datetime.date.today().year:raise s.WorkflowError('Enter a valid founding year.',field='founded_year')
+    for key in ('categories','certifications','materials','regions'):profile[key]=normalization.sequence(data.get(key,[]),key)
     return profile
 
 
@@ -129,8 +142,15 @@ def issue(db, account):
     db.execute('UPDATE market_tokens SET used_at=? WHERE owner_id=? AND used_at IS NULL',(s.now(),account['id']))
     db.execute('INSERT INTO market_tokens VALUES (?,?,?,NULL)',(s.digest(token),account['id'],s.now()+86400))
     link=s.public_base()+'/access#market_token='+token
-    return s.queue(db,account['email'],'STRATEVO — confirm your supplier email',
-                   'Confirm your email to access your supplier account. Products submitted through Confirm and Publish are already public; older pending submissions publish on confirmation. No manager approval is required. Email confirmation is not certification of your business or products.\n\n'+link+'\n\nThis link expires in 24 hours and can be used once. If you did not request this, ignore it.')
+    listing=db.execute('SELECT id,public_payload FROM market_products WHERE owner_id=? ORDER BY created_at DESC LIMIT 1',(account['id'],)).fetchone()
+    from urllib.parse import quote
+    listing_note=('\n\nListing reference: P-'+listing['id'][:12]+'\nMarketplace: '+s.public_base()+'/marketplace?q='+quote(json.loads(listing['public_payload'])['title'][:100])) if listing else ''
+    message_id=s.queue(db,account['email'],'STRATEVO — confirm your supplier email',
+                   'Confirm your email to access your supplier account. Products submitted through Confirm and Publish are already public; older pending submissions publish on confirmation. No manager approval is required. Email confirmation is not certification of your business or products.\n\n'+link+listing_note+'\n\nThis link expires in 24 hours and can be used once. If you did not request this, ignore it.')
+
+    from app.mail_policy import audit_auth_mail
+    audit_auth_mail(db,message_id,account['email'],account['id'])
+    return message_id
 
 
 def register(data, *, immediate=False):
@@ -179,6 +199,8 @@ def publish_registration(data):
             db.execute('INSERT INTO market_accounts VALUES (?,?,?,?,NULL)',(owner,profile['email'],json.dumps(profile),s.now()))
             db.execute('INSERT INTO market_publications VALUES (?,?,?,?)',(owner,s.digest(key),fingerprint,s.now()))
             db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),owner,json.dumps(payload),image,'published',s.now()))
+            from app.operations import upsert_supplier
+            upsert_supplier(db,owner,{**profile,'product':payload})
             # Missing email/origin configuration never rolls back an otherwise valid publication.
             try:
                 s.public_base()
@@ -189,7 +211,7 @@ def publish_registration(data):
             enqueue(db,'supplier',owner,'Product category: '+payload['category']+'; business country: '+profile['country'])
         session=s.session(db,'publisher',owner)
     storage=settings.storage_status()
-    return {'published':True,'email_confirmed':False,'redirect':'/supplier/account','_session':session,
+    return {'supplier_id':owner,'supplier':{**payload,'reference':owner},'new_submission':not bool(existing),'management':{'method':'http_only_cookie','expires_in_seconds':28800},'published':True,'email_confirmed':False,'redirect':'/supplier/account','_session':session,
             'storage':storage,'message':'Product published. Your management session is active in this browser. Email ownership is not yet confirmed. '+storage['warning']},message_id
 
 
@@ -246,7 +268,7 @@ def listings(query='',category='',offset=0):
             values.append('%'+word.replace('!','!!').replace('%','!%').replace('_','!_')+'%')
         where=' AND '.join(clauses)
         total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']
-        rows=db.execute("SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE "+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()
+        rows=db.execute("SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE "+where+' ORDER BY COALESCE((SELECT featured FROM suppliers sm WHERE sm.id=a.id),0) DESC,p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()
     return {'products':[public_product(row) for row in rows],'total':total,'has_more':total>offset+24,'offset':offset,'notice':NOTICE,'scan_limit':None}
 
 
@@ -262,7 +284,7 @@ def mine(raw):
     profile=json.loads(account['private_profile'])
     with s.database() as db:rows=db.execute("SELECT id,public_payload,CASE WHEN image='' THEN '' ELSE 'yes' END AS image,visibility FROM market_products WHERE owner_id=? ORDER BY created_at DESC",(account['id'],)).fetchall()
     from app.settings import storage_status
-    return {'email_confirmed':account['verified_at'] is not None,'storage':storage_status(),'profile':{k:profile[k] for k in ('company','contact','email','country')},'products':[{**public_product(r),'visibility':r['visibility']} for r in rows]}
+    return {'email_confirmed':account['verified_at'] is not None,'storage':storage_status(),'profile':{k:v for k,v in profile.items() if k!='license_pdf'},'products':[{**public_product(r),'visibility':r['visibility']} for r in rows]}
 
 
 def add_product(raw,data):

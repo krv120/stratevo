@@ -4,3 +4,7 @@
 .spam-trap{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}.legal-copy{max-width:900px;line-height:1.8}.legal-copy h2{margin-top:30px}.legal-copy p,.readable-list{color:#b9c6da}.readable-list li{margin:14px 0}.form-status{white-space:pre-wrap;overflow-wrap:anywhere}a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #85adff;outline-offset:4px}button,.secondary,select{min-height:44px}#inquiry-records dd{white-space:pre-wrap;overflow-wrap:anywhere}#inquiry-records select{margin-bottom:12px}.footer-nav a{display:inline-block;padding:5px 0}#inquiry-success:focus{outline:2px solid #85adff;outline-offset:8px}
 
 #market-review{max-width:min(42rem,calc(100vw - 2rem));max-height:85vh;overflow:auto;background:#10151f;color:#edf3ff;border:1px solid #3968d9;padding:1.5rem}#market-review::backdrop{background:#000b}#market-review-product{overflow-wrap:anywhere}
+
+.field-error{color:#ffb8b8;font-size:.9rem} [aria-invalid="true"]{outline:2px solid #d95a5a} [data-lead-results] a{overflow-wrap:anywhere}
+
+#operations-manager pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:25rem;overflow:auto}#operations-manager dialog{background:#10151f;color:#edf3ff;width:min(48rem,90vw);max-height:85vh;overflow:auto;border:1px solid #3968d9;padding:1.5rem}#operations-manager button{margin:.25rem}#operations-manager [data-lead-results]{overflow-wrap:anywhere}

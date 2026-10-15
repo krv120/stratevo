@@ -3,6 +3,7 @@ Usage: PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py [--postgres]
 This emulates a worker; it is not a deployed Vercel/load-balancer certification.
 """
 import base64
+from contextlib import ExitStack
 import json
 import os
 import secrets
@@ -28,6 +29,7 @@ with tempfile.TemporaryDirectory(dir='private') as folder:
         import pgserver
         pg=pgserver.get_server(Path(folder)/'postgres')
         config['POSTGRES_URL']=pg.get_uri()
+    if '--engine' in sys.argv:config.update(OPENAI_API_KEY='synthetic-test-only',RESEND_API_KEY='synthetic-test-only',MAIL_DELIVERY_ENABLED='true',MAIL_FROM='sender@example.invalid',ADMIN_NOTIFICATION_EMAIL='owner@example.invalid')
     password=secrets.token_urlsafe(24);seed=base64.b32encode(secrets.token_bytes(24)).decode()
     config['ADMIN_ACCOUNTS_JSON']=json.dumps([{'id':'fixture-admin','password_hash':suppliers.hash_password(password),'totp_secret':seed}])
     try:
@@ -43,7 +45,13 @@ with tempfile.TemporaryDirectory(dir='private') as folder:
                 env={**os.environ,'TEST_BASE_URL':base,
                      'TEST_ADMIN_PASSWORD':password,'TEST_ADMIN_OTP':admin_auth.code(seed,suppliers.now()//30),
                      'TEST_STORAGE_MODE':'postgres' if pg else 'ephemeral_fallback'}
-                subprocess.run(['node','tests/vercel_browser.cjs'],env=env,check=True,timeout=120)
+                with ExitStack() as stack:
+                    if '--engine' in sys.argv:
+                        candidate={'company_name':'SYNTHETIC Test Research Company','country':'Test country','city_region':'Test region','website_url':'https://example.com/','source_urls':['https://example.com/'],'specialties_and_capabilities':['Synthetic fixture only'],'certifications':[],'fit_score':60,'ai_rationale':'Synthetic test, not a real lead recommendation.'}
+                        stack.enter_context(patch('app.ai_providers.grounded',return_value={'status':'searched','text':json.dumps({'leads':[candidate]}),'sources':['https://example.com/']}))
+                        stack.enter_context(patch('app.agent.provider_request',return_value={'content':json.dumps({'summary':'SYNTHETIC improved machining capability summary for testing only.','keywords':['machining'],'suggested_checks':['Request certification scope evidence.'],'buyer_match_preview':'Synthetic buyer sector; not confirmed demand.'})}))
+                        stack.enter_context(patch('app.mail_policy.send',return_value='synthetic_test_acceptance'))
+                    subprocess.run(['node','tests/engine_browser.cjs' if '--engine' in sys.argv else 'tests/vercel_browser.cjs'],env=env,check=True,timeout=120)
             finally:server.shutdown();server.server_close();thread.join()
     finally:
         if pg:pg.cleanup()

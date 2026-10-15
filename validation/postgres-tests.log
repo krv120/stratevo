@@ -14,3 +14,4 @@ PASS anon/authenticated role denial and RLS protection of applications and disco
   return Path(self.user_runtime_dir)
 PASS cold PostgreSQL initialization via POSTGRES_URL, all five migrations, concurrent startup and repeated non-prepared queries
 PASS PostgreSQL exact-retry immediate publication, management sessions, rollback, suspension and nondestructive migration reapplication
+PASS PostgreSQL new supplier/notification/lead/settings tables have RLS and deny rows even after accidental SELECT grants

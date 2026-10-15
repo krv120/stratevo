@@ -37,6 +37,30 @@ test_deduplicates_host_and_skips_bad_urls (test_discovery.DiscoveryTests.test_de
 test_disabled_is_honest (test_discovery.DiscoveryTests.test_disabled_is_honest) ... ok
 test_missing_brief_never_searches (test_discovery.DiscoveryTests.test_missing_brief_never_searches) ... ok
 test_private_provenance_and_three_maximum (test_discovery.DiscoveryTests.test_private_provenance_and_three_maximum) ... ok
+test_alias_login_requires_mfa_in_production_and_rotates (test_engine_upgrade.AdminAliasTests.test_alias_login_requires_mfa_in_production_and_rotates) ... ok
+test_exact_registration_retry_does_not_call_ai_twice (test_engine_upgrade.AdminAliasTests.test_exact_registration_retry_does_not_call_ai_twice) ... ok
+test_no_default_admin_access_and_setup_is_secret_free (test_engine_upgrade.AdminAliasTests.test_no_default_admin_access_and_setup_is_secret_free) ... ok
+test_enrichment_is_reviewable_and_not_automatically_verified (test_engine_upgrade.EngineTests.test_enrichment_is_reviewable_and_not_automatically_verified) ... ok
+test_grounded_candidates_saved_but_unsupported_urls_dropped (test_engine_upgrade.EngineTests.test_grounded_candidates_saved_but_unsupported_urls_dropped) ... ok
+test_inquiry_dispatch_and_persistent_attempt_log (test_engine_upgrade.EngineTests.test_inquiry_dispatch_and_persistent_attempt_log) ... ok
+test_invalid_fields_return_location_and_no_record (test_engine_upgrade.EngineTests.test_invalid_fields_return_location_and_no_record) ... ok
+test_no_citations_never_fabricates_a_lead (test_engine_upgrade.EngineTests.test_no_citations_never_fabricates_a_lead) ... ok
+test_profile_edit_verification_feature_and_guarded_delete (test_engine_upgrade.EngineTests.test_profile_edit_verification_feature_and_guarded_delete) ... ok
+test_provider_failure_does_not_undo_inquiry (test_engine_upgrade.EngineTests.test_provider_failure_does_not_undo_inquiry) ... ok
+test_recipient_update_requires_admin_and_read_counter (test_engine_upgrade.EngineTests.test_recipient_update_requires_admin_and_read_counter) ... ok
+test_supplier_normalization_immediate_inbox_and_private_registry (test_engine_upgrade.EngineTests.test_supplier_normalization_immediate_inbox_and_private_registry) ... ok
+test_supplier_updates_only_own_profile_and_logs_notice (test_engine_upgrade.EngineTests.test_supplier_updates_only_own_profile_and_logs_notice) ... ok
+test_unknown_browser_cache_is_not_blindly_imported (test_engine_upgrade.EngineTests.test_unknown_browser_cache_is_not_blindly_imported) ... ok
+test_resend_and_sendgrid_real_request_contracts (test_engine_upgrade.MailTransportTests.test_resend_and_sendgrid_real_request_contracts) ... ok
+test_smtp_ssl_and_starttls (test_engine_upgrade.MailTransportTests.test_smtp_ssl_and_starttls) ... ok
+test_webhook_never_receives_supplier_login_tokens (test_engine_upgrade.MailTransportTests.test_webhook_never_receives_supplier_login_tokens) ... ok
+test_explicit_provider_and_legacy_openai_default (test_engine_upgrade.ProviderTests.test_explicit_provider_and_legacy_openai_default) ... ok
+test_fenced_json_and_native_adapters (test_engine_upgrade.ProviderTests.test_fenced_json_and_native_adapters) ... ok
+test_grounding_is_not_assumed_from_chat_key (test_engine_upgrade.ProviderTests.test_grounding_is_not_assumed_from_chat_key) ... ok
+test_key_aliases_defaults_and_priority (test_engine_upgrade.ProviderTests.test_key_aliases_defaults_and_priority) ... ok
+test_openai_bounded_model_fallback (test_engine_upgrade.ProviderTests.test_openai_bounded_model_fallback) ... ok
+test_perplexity_chat_does_not_send_unsupported_function_tools (test_engine_upgrade.ProviderTests.test_perplexity_chat_does_not_send_unsupported_function_tools) ... ok
+test_transport_header_timeout_and_safe_errors (test_engine_upgrade.ProviderTests.test_transport_header_timeout_and_safe_errors) ... ok
 test_admin_registry_pagination (test_hardening.HardeningTests.test_admin_registry_pagination) ... ok
 test_aggregate_metrics_no_transcript (test_hardening.HardeningTests.test_aggregate_metrics_no_transcript) ... ok
 test_atomic_storage_ceiling (test_hardening.HardeningTests.test_atomic_storage_ceiling) ... ok
@@ -50,11 +74,11 @@ test_health_failure_and_json_methods (test_hardening.HardeningTests.test_health_
 test_image_processing_lease_expires_and_releases (test_hardening.HardeningTests.test_image_processing_lease_expires_and_releases) ... ok
 test_mail_worker_requires_secret (test_hardening.HardeningTests.test_mail_worker_requires_secret) ... ok
 test_named_admin_totp_replay_and_rotation (test_hardening.HardeningTests.test_named_admin_totp_replay_and_rotation) ... ok
-test_public_model_cannot_invent_qualification_for_lookup (test_hardening.HardeningTests.test_public_model_cannot_invent_qualification_for_lookup) ... ok
-test_report_and_review (test_hardening.HardeningTests.test_report_and_review) ... /home/user/stratevo/app/connections.py:99: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
-  if statement.strip():raw.execute(statement)
+test_public_model_cannot_invent_qualification_for_lookup (test_hardening.HardeningTests.test_public_model_cannot_invent_qualification_for_lookup) ... /usr/lib/python3.11/unittest/mock.py:2124: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
+  setattr(_type, entry, MagicProxy(entry, self))
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
+test_report_and_review (test_hardening.HardeningTests.test_report_and_review) ... ok
 test_retention_opt_in (test_hardening.HardeningTests.test_retention_opt_in) ... ok
 test_sql_pagination_beyond_old_cutoff (test_hardening.HardeningTests.test_sql_pagination_beyond_old_cutoff) ... ok
 test_storage_capacity (test_hardening.HardeningTests.test_storage_capacity) ... ok
@@ -162,6 +186,6 @@ test_review_race_conflict (test_suppliers.WorkflowTests.test_review_race_conflic
 test_unknown_access_non_enumerating (test_suppliers.WorkflowTests.test_unknown_access_non_enumerating) ... ok
 
 ----------------------------------------------------------------------
-Ran 159 tests in 11.675s
+Ran 183 tests in 14.485s
 
 OK

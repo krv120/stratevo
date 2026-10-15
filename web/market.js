@@ -3,18 +3,27 @@
   const el=id=>document.getElementById(id);
   const node=(tag,value,cls)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=value;if(cls)n.className=cls;return n;};
   async function api(path,body){
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
     try{const response=await fetch(path,{signal:controller.signal,method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
       if(!(response.headers.get('content-type')||'').includes('application/json'))throw new Error('The server did not return an API response. Please retry later.');
-      const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed. Please retry.');return data;
+      const data=await response.json();if(!response.ok){const error=new Error(data.error||'Request failed. Please retry.');error.field=data.field;throw error;}return data;
     }catch(error){if(error.name==='AbortError')throw new Error('The request took too long. It may have completed; check your email or account before submitting again.');throw error;}finally{clearTimeout(timer);}
   }
   function encode(file,maximum){if(!file||file.size===0||file.size>maximum)throw new Error(`Choose a non-empty file no larger than ${maximum===500000?'500 KB':'2 MB'}.`);return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=()=>reject(new Error('The selected file could not be read.'));r.readAsDataURL(file);});}
-  async function product(form){const f=form.elements;return {title:f.title.value,description:f.description.value,category:f.category.value,location:f.location.value,unit:f.unit.value,moq:f.moq.value?Number(f.moq.value):null,price:f.price.value,currency:f.currency.value,content_consent:f.content_consent.checked,image:f.photo.files[0]?await encode(f.photo.files[0],500000):''};}
+  async function product(form){const f=form.elements;return {title:f.title.value,description:f.description.value,category:f.category.value,location:f.location.value,unit:f.unit.value,moq:f.moq.value.trim()||null,price:f.price.value,currency:f.currency.value,content_consent:f.content_consent.checked,image:f.photo.files[0]?await encode(f.photo.files[0],500000):''};}
   function task(id,status,action){const form=el(id);if(!form)return;form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');if(button.disabled)return;button.disabled=true;el(status).textContent='Working…';try{await action(form);}catch(error){el(status).textContent=error.message;}finally{button.disabled=false;}});}
+  function showFieldError(input,message){
+    input.setAttribute('aria-invalid','true');const id=(input.id||input.name)+'-error';let error=document.getElementById(id);if(!error){error=node('p');error.id=id;error.className='field-error';input.after(error);}error.textContent=message;input.setAttribute('aria-describedby',id);input.focus();input.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+  }
+  document.querySelectorAll('#market-register input,#market-register textarea,#market-register select').forEach(input=>{input.addEventListener('invalid',()=>showFieldError(input,input.validationMessage));input.addEventListener('input',()=>{input.removeAttribute('aria-invalid');const error=document.getElementById((input.id||input.name)+'-error');if(error)error.textContent='';});});
+  if(el('enhance-profile'))el('enhance-profile').onclick=async()=>{
+    const button=el('enhance-profile');button.disabled=true;el('enhance-status').textContent='Preparing an AI suggestion…';
+    try{const result=await api('/api/supplier/enhance',{summary:el('supplier-capabilities').value.trim()});el('enhance-preview').replaceChildren(node('p',result.summary),node('p','Keywords: '+result.keywords.join(', ')),node('p','Suggested evidence checks, NOT certifications: '+result.suggested_checks.join('; ')),node('p',result.buyer_match_preview));el('enhance-status').textContent=result.notice;el('apply-enhancement').hidden=false;el('apply-enhancement').onclick=()=>{el('supplier-capabilities').value=result.summary;el('apply-enhancement').hidden=true;};}
+    catch(error){el('enhance-status').textContent=error.message;if(error.field==='summary')showFieldError(el('supplier-capabilities'),error.message);}finally{button.disabled=false;}
+  };
   let registrationAttempt=null;
   task('market-register','market-register-status',async form=>{
-    const f=form.elements,data={};for(const k of ['company','contact','email','country','city','whatsapp','wechat','license_number'])data[k]=f[k].value;
+    const f=form.elements,data={};for(const k of ['company','contact','email','country','city','whatsapp','wechat','license_number','website','phone','capabilities','categories','certifications','materials','regions','lead_time','employees','founded_year'])data[k]=f[k]?.value.normalize('NFKC').trim()||'';if(data.website&&!data.website.includes('://')&&!data.website.startsWith('['))data.website='https://'+data.website;
     data.consent=f.consent.checked;data.license_pdf='';data.product=await product(form);
     // A random bearer idempotency key permits exact retries after response loss, never access by email alone.
     const signature=JSON.stringify(data);
@@ -25,16 +34,16 @@
     dialog.showModal();el('market-register-status').textContent='Review your product before publishing.';
     const publish=el('market-confirm-publish'),cancel=el('market-review-cancel');
     publish.onclick=async()=>{
-      if(publish.disabled)return;publish.disabled=true;cancel.disabled=true;
+      if(publish.disabled)return;publish.disabled=true;cancel.disabled=true;publish.textContent='Publishing & notifying admin…';
       const preventClose=e=>e.preventDefault();dialog.addEventListener('cancel',preventClose);
       try{
         const result=await api('/api/marketplace/register',data);
         el('market-review-status').textContent=result.message;
         if(!result.published)return;
         registrationAttempt=null;form.reset();form.hidden=true;dialog.close();
-        const success=el('market-register-success');el('market-register-result').textContent=result.message;success.hidden=false;success.focus();
-      }catch(error){el('market-review-status').textContent=error.message+' Your details are retained. Retry Confirm and Publish without changing this review to recover the same submission.';}
-      finally{publish.disabled=false;cancel.disabled=false;dialog.removeEventListener('cancel',preventClose);}
+        const success=el('market-register-success');el('market-register-result').textContent=result.message;el('owner-notification-status').textContent='Admin notification: '+(result.email_notification_status||'queued_in_admin_inbox')+'. Sent means transport accepted, not confirmed inbox delivery.';window.StratevoLeads?.render(el('instant-buyer-leads'),result.buyer_leads||{});success.hidden=false;success.focus();
+      }catch(error){if(error.field&&form.elements[error.field]){dialog.close();showFieldError(form.elements[error.field],error.message);}el('market-review-status').textContent=error.message+' Your details are retained. Retry Confirm and Publish without changing this review to recover the same submission.';}
+      finally{publish.textContent='Confirm and Publish';publish.disabled=false;cancel.disabled=false;dialog.removeEventListener('cancel',preventClose);}
     };
     cancel.onclick=()=>dialog.close();
   });
@@ -50,7 +59,7 @@
     if(!owned){const report=node('details');report.append(node('summary','Report this listing'));const form=node('form'),reason=node('textarea');reason.required=true;reason.minLength=10;reason.maxLength=1000;reason.setAttribute('aria-label','Reason for reporting '+p.reference);const submit=node('button','Send private report','quiet');submit.type='submit';const status=node('p');status.setAttribute('role','status');form.append(reason,submit,status);form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;try{status.textContent=(await api('/api/marketplace/report',{id:p.id,reason:reason.value})).message;reason.value='';}catch(error){status.textContent=error.message;}finally{submit.disabled=false;}};report.append(form);body.append(report);}
     body.append(actions);article.append(body);return article;
   }
-  let generation=0,nextOffset=0,filters={q:'',category:''};
+  let generation=0,nextOffset=0,filters={q:(new URLSearchParams(location.search).get('q')||'').slice(0,100),category:''};
   async function load(append=false){
     const run=++generation;el('market-more').disabled=true;el('market-status').textContent='Loading products…';
     try{const query=new URLSearchParams({...filters,offset:append?nextOffset:0}),data=await api('/api/marketplace?'+query);if(run!==generation)return;
@@ -59,12 +68,13 @@
       if(!data.products.length&&!append){const empty=node('section',undefined,'market-empty');empty.append(node('h2','No products to display yet.'),node('p',filters.q||filters.category?'Try different keywords or another category.':'Supplier products appear here after Confirm and Publish. We do not populate the Marketplace with invented listings.'));const link=node('a','List your first product ↗','secondary');link.href='/supplier';empty.append(link);el('market-products').append(empty);}
     }catch(error){if(run===generation){el('market-status').textContent=error.message;el('market-more').hidden=true;if(!append)el('market-products').replaceChildren();}}finally{if(run===generation)el('market-more').disabled=false;}
   }
-  if(el('market-filter')){el('market-filter').onsubmit=event=>{event.preventDefault();filters={q:el('market-query').value.trim(),category:el('market-category').value};load();};el('market-more').onclick=()=>load(true);load();}
+  if(el('market-filter')){el('market-query').value=filters.q;el('market-filter').onsubmit=event=>{event.preventDefault();filters={q:el('market-query').value.trim(),category:el('market-category').value};load();};el('market-more').onclick=()=>load(true);load();}
   async function account(){
-    try{const data=await api('/api/marketplace/me');el('market-account').hidden=false;el('market-account-status').textContent=(data.email_confirmed?'Email confirmed. ':'Email not yet confirmed. This browser has a management session; email access requires a configured delivery service. ')+ 'Business and product claims are not independently verified. '+(data.storage?.warning||'');el('market-profile').textContent=data.profile.company;el('market-owned').replaceChildren(...data.products.map(p=>card(p,true)));if(!data.products.length)el('market-owned').append(node('p','No products yet. Add one below.'));
+    try{const data=await api('/api/marketplace/me');el('market-account').hidden=false;el('market-account-status').textContent=(data.email_confirmed?'Email confirmed. ':'Email not yet confirmed. This browser has a management session; email access requires a configured delivery service. ')+ 'Business and product claims are not independently verified. '+(data.storage?.warning||'');el('market-profile').textContent=data.profile.company;if(el('market-profile-fields')&&!el('market-profile-edit').dataset.loaded){for(const key of ['company','contact','country','city','phone','website','capabilities','categories','certifications','materials','regions','lead_time','employees','founded_year']){const label=node('label',key.replaceAll('_',' '),'field'),input=node(key==='capabilities'?'textarea':'input');input.name=key;input.maxLength=key==='capabilities'?3000:1000;input.value=Array.isArray(data.profile[key])?data.profile[key].join(', '):data.profile[key]||'';label.append(input);el('market-profile-fields').append(label);}el('market-profile-edit').dataset.loaded='true';}el('market-owned').replaceChildren(...data.products.map(p=>card(p,true)));if(!data.products.length)el('market-owned').append(node('p','No products yet. Add one below.'));
     }catch(error){el('market-account').hidden=true;el('market-account-status').replaceChildren(node('span',error.message+' '));const link=node('a','Request a secure email link.');link.href='/supplier#sign-in';el('market-account-status').append(link);}
   }
   if(el('market-account')){account();el('market-logout').onclick=async()=>{try{await api('/api/marketplace/logout',{});location.assign('/supplier#sign-in');}catch(error){el('market-account-status').textContent=error.message;}};}
+  task('market-profile-edit','market-profile-status',async form=>{const profile=Object.fromEntries(new FormData(form));const result=await api('/api/marketplace/profile',{profile});el('market-profile-status').textContent=result.message;el('market-profile-fields').replaceChildren();delete form.dataset.loaded;await account();});
   task('market-add','market-add-status',async form=>{const data=await api('/api/marketplace/products',await product(form));form.reset();el('market-add-status').textContent=data.message;await account();});
   let adminOffset=0;
   if(el('load-market-admin'))el('load-market-admin').onclick=async()=>{

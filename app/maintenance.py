@@ -32,6 +32,7 @@ def _mail_ids(db,kind,identifier,row):
         else:
             rows=db.execute("SELECT id FROM outbox WHERE recipient=? AND subject IN ('STRATEVO — verify your application email','STRATEVO — approved supplier access','STRATEVO — application decision')",(email,)).fetchall()
         ids += [r['id'] for r in rows]
+    ids += [r['outbox_id'] for r in db.execute('SELECT outbox_id FROM admin_notifications WHERE entity_id=? OR entity_id LIKE ?',(identifier,identifier+':update:%')).fetchall() if r['outbox_id']]
     for identifier in set(ids):
         # Lock before reading the lease; concurrent SMTP claiming cannot race erasure.
         message=db.execute('UPDATE outbox SET created_at=created_at WHERE id=? RETURNING claimed_until,sent_at',(identifier,)).fetchone()
@@ -41,6 +42,8 @@ def _mail_ids(db,kind,identifier,row):
 
 def erase_in(db,kind,identifier,actor):
     row=_record(db,kind,identifier);mails=_mail_ids(db,kind,identifier,row)
+    for mail in mails:db.execute('DELETE FROM admin_notifications WHERE outbox_id=?',(mail,))
+    db.execute('DELETE FROM admin_notifications WHERE entity_id=? OR entity_id LIKE ?',(identifier,identifier+':update:%'))
     db.execute('DELETE FROM notification_jobs WHERE entity_type=? AND entity_id=?',(kind,identifier))
     for mail in mails:db.execute('DELETE FROM outbox WHERE id=?',(mail,))
     if kind=='customer':db.execute('DELETE FROM customer_inquiries WHERE id=?',(identifier,))

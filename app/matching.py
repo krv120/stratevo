@@ -107,3 +107,11 @@ def render(result):
     if result.get('evidence_gaps'):
         parts.append('Evidence gaps: ' + '; '.join(result['evidence_gaps']))
     return '\n\n'.join(parts)
+
+
+def public_candidates(query):
+    """Anonymized internal research stays separate from named external source-backed leads."""
+    from app.marketplace import listings
+    return {'marketplace_suppliers':listings(query[:100])['products'][:8],
+            'catalog_research':catalog.search(query,limit=3),
+            'notice':'Marketplace submissions and catalog research are not independently verified suppliers.'}

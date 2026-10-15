@@ -46,4 +46,14 @@ with tempfile.TemporaryDirectory(dir='private') as folder:
                 assert db.execute('SELECT COUNT(*) AS n FROM schema_migrations').fetchone()['n']==5
                 assert db.execute("SELECT relrowsecurity FROM pg_class WHERE relname='market_publications'").fetchone()['relrowsecurity']
             print('PASS PostgreSQL exact-retry immediate publication, management sessions, rollback, suspension and nondestructive migration reapplication')
+            from app import operations
+            with suppliers.database() as db:
+                for table in operations.TABLES:
+                    assert db.execute('SELECT relrowsecurity FROM pg_class WHERE relname=?',(table,)).fetchone()['relrowsecurity']
+                db.execute('CREATE ROLE engine_anon')
+                db.execute('GRANT USAGE ON SCHEMA stratevo_private TO engine_anon')
+                for table in operations.TABLES:db.execute('GRANT SELECT ON '+table+' TO engine_anon')
+                db.execute('SET LOCAL ROLE engine_anon')
+                for table in operations.TABLES:assert db.execute('SELECT COUNT(*) AS n FROM '+table).fetchone()['n']==0
+            print('PASS PostgreSQL new supplier/notification/lead/settings tables have RLS and deny rows even after accidental SELECT grants')
     finally:server.cleanup()

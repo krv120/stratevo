@@ -169,7 +169,7 @@ def context_for(messages):
     query = ' '.join(m['content'] for m in messages if m['role']=='user')[-12000:].casefold()
     ranked = sorted(enumerate(TOPICS), key=lambda pair: (-sum(term in query for term in pair[1][1]),pair[0]))
     selected = [topic for _,topic in ranked if any(term in query for term in topic[1])][:4]
-    return CORE + '\n' + LANGUAGE + '\n' + '\n'.join(topic[2] for topic in selected)
+    return 'Current platform: Confirm and Publish creates public product listings without claiming email/business verification. The AI Lead Finder separately searches grounded external sources and saves unverified leads; a chat answer alone does not perform that operation. Never infer actual buyer demand from a company profile.\n'+CORE + '\n' + LANGUAGE + '\n' + '\n'.join(topic[2] for topic in selected)
 
 
 def reference_document():

@@ -27,27 +27,35 @@ CONSENT_VERSION = 'inquiry-2026-10-12'
 SECRET = re.compile(r'AIza[0-9A-Za-z_-]{35}|sk-(?:proj-)?[A-Za-z0-9_-]{24,}|-----BEGIN .*PRIVATE KEY-----')
 
 
-def recipient():
-    value=os.environ.get('NOTIFICATION_EMAIL','').strip()
-    if not value:return None
-    try:return s.email_address({'email':value})
-    except s.WorkflowError:return None
+def recipient(db=None):
+    from app.mail_policy import admin_recipient
+    return admin_recipient(db) or None
 
 
 def enqueue(db, kind, entity_id, summary):
     """Same transaction as the record: a mail failure cannot lose the inquiry."""
     db.execute('INSERT INTO notification_jobs VALUES (?,?,?,?,?,NULL) ON CONFLICT(entity_type,entity_id) DO NOTHING',
                (str(uuid.uuid4()),kind,entity_id,summary[:500],s.now()))
+    from app.mail_policy import log_event
+    row=db.execute('SELECT payload FROM customer_inquiries WHERE id=?',(entity_id,)).fetchone() if kind=='customer' else db.execute('SELECT private_profile FROM market_accounts WHERE id=?',(entity_id,)).fetchone()
+    payload=json.loads(row['payload'] if kind=='customer' else row['private_profile']) if row else {'summary':summary}
+    payload.pop('license_pdf',None)
+    if kind=='supplier':payload['products']=[json.loads(r['public_payload']) for r in db.execute('SELECT public_payload FROM market_products WHERE owner_id=? ORDER BY created_at DESC LIMIT 50',(entity_id,)).fetchall()]
+    log_event(db,'buyer_inquiry' if kind=='customer' else 'supplier_published',entity_id,payload)
     queue_pending(db,kind,entity_id)
 
 
 def queue_pending(db, kind=None, entity_id=None):
     from app.controls import capacity
     capacity(db,'lock')
-    destination=recipient()
+    destination=recipient(db)
+    from app import mail_policy
+    if not destination and mail_policy.transport()=='webhook':destination='admin-inbox@example.invalid'
     if not destination:return 0
     try:base=s.public_base()
-    except s.WorkflowError:return 0
+    except s.WorkflowError:
+        from app.settings import canonical
+        base=canonical()
     query='SELECT id,entity_type,entity_id,summary FROM notification_jobs WHERE outbox_id IS NULL'
     args=()
     if kind:query+=' AND entity_type=? AND entity_id=?';args=(kind,entity_id)
@@ -60,11 +68,13 @@ def queue_pending(db, kind=None, entity_id=None):
         body=('A '+job['entity_type']+' submission was saved.\nReference: '+job['entity_id']+'\n'+job['summary']+
               '\n\nSign in to review private details: '+base+'/admin#'+job['entity_type']+'-'+job['entity_id']+
               '\n\nThis notification is not supplier verification, a quote or a commercial commitment.')
+        notification=db.execute('SELECT payload_json FROM admin_notifications WHERE entity_id=?',(job['entity_id'],)).fetchone()
+        if notification:body+='\n\nSubmitted private details:\n'+json.dumps(json.loads(notification['payload_json']),indent=2,ensure_ascii=False)
         try:mail=s.queue(db,destination,'STRATEVO — new '+job['entity_type']+' submission',body)
         except s.WorkflowError as error:
             if error.status==503:break  # Retain the durable notification intent until space/configuration recovers.
             raise
-        db.execute('UPDATE notification_jobs SET outbox_id=? WHERE id=?',(mail,job['id']));count+=1
+        db.execute('UPDATE notification_jobs SET outbox_id=? WHERE id=?',(mail,job['id']));mail_policy.bind_notification(db,job['entity_type'],job['entity_id'],mail);count+=1
     return count
 
 

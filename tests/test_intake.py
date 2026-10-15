@@ -26,7 +26,7 @@ class IntakeTests(unittest.TestCase):
         with s.database() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM customer_inquiries').fetchone()['n'],1)
             self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM market_accounts').fetchone()['n'],0)
-            mail=db.execute('SELECT * FROM outbox').fetchone();self.assertEqual(mail['recipient'],'owner@example.invalid');self.assertIn(first['id'],mail['body']);self.assertNotIn('buyer@example.invalid',mail['body'])
+            mail=db.execute('SELECT * FROM outbox').fetchone();self.assertEqual(mail['recipient'],'owner@example.invalid');self.assertIn(first['id'],mail['body']);self.assertIn('buyer@example.invalid',mail['body'])  # Owner explicitly requested full private details in admin notifications.
         record=intake.list_inquiries()['inquiries'][0];self.assertFalse(record['details']['marketing_consent']);self.assertEqual(record['notification'],'queued');self.assertNotIn('submission_key',json.dumps(record))
 
     def test_invalid_input_never_saved(self):

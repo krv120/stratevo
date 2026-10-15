@@ -9,8 +9,11 @@ def status():
         ai_ready = agent.configured()
     except ValueError:
         ai_ready = False
-    return {'storage':settings.storage_status(),'ai_configured':ai_ready,'search_configured':discovery.configured(),
-            'email_configured':bool(os.environ.get('SMTP_HOST') and os.environ.get('MAIL_FROM')),
+    try:ai_config=settings.ai_configuration()
+    except ValueError:ai_config={'key':'','provider':'invalid'}
+    live_search=bool(ai_config['key'] and (ai_config['provider'] in ('openai','gemini','anthropic','perplexity') or os.environ.get('BRAVE_SEARCH_API_KEY')))
+    return {'storage':settings.storage_status(),'ai_configured':ai_ready,'ai_provider':ai_config['provider'],'search_configured':live_search,
+            'email_configured':__import__('app.mail_policy',fromlist=['transport']).transport()!='admin_inbox',
             'owner_notification_configured':bool(intake.recipient()),
             'notice':'Configured is not a connection test. Keys are read from server environment variables; redeploy or restart after changing them.'}
 
@@ -31,8 +34,8 @@ def check(service):
         except Exception:
             return {'ok':False,'message':'AI connection failed. Check the endpoint, model access, key, provider billing and hosting outbound access. Secret/provider error details are not shown.'}
         return {'ok':True,'message':'The configured model returned a response. Test a full sourcing conversation next; this basic check does not validate tool calling or answer quality.'}
-    result = discovery.discover({'product':'cardboard packaging boxes','volume':100,'unit':'pieces','location':'any','certifications':[]})
-    return {'ok':result['status'] in ('online_research','no_match'), 'message':result['message']}
+    result = discovery.find_leads({'query':'cardboard packaging manufacturers','geography':'','lead_type':'supplier_lead'},'admin-connection-test')
+    return {'ok':result['status']=='searched', 'message':result['message']}
 
 
 # One storage boundary for workflow, catalog, discovery and rate limits.
@@ -80,9 +83,9 @@ def _initialize(raw, postgres):
             if raw.execute('SELECT 1 FROM pg_roles WHERE rolname=%s',(role,)).fetchone():
                 raw.execute('REVOKE ALL ON ALL TABLES IN SCHEMA stratevo_private FROM '+role)
     else:
-        from app import suppliers, marketplace, public_ai, intake, controls
+        from app import suppliers, marketplace, public_ai, intake, controls, operations
         raw.execute('BEGIN IMMEDIATE')
-        schema=suppliers.SCHEMA+marketplace.SCHEMA+public_ai.SCHEMA+intake.SCHEMA+controls.SCHEMA
+        schema=suppliers.SCHEMA+marketplace.SCHEMA+public_ai.SCHEMA+intake.SCHEMA+controls.SCHEMA+operations.SCHEMA
         schema+="""
 CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, batch TEXT NOT NULL, fingerprint TEXT NOT NULL, original TEXT NOT NULL, public_summary TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(id UNINDEXED, description);

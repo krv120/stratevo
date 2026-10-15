@@ -17,6 +17,7 @@ from app.agent import configured, reply, ProviderError
 from app.catalog import count, search, owner_records
 from app import suppliers, connections, marketplace, public_ai, intake, seo, settings, controls, maintenance
 from app.matching import match
+from app import engine_http, mail_policy
 from app.discovery import discover, configured as discovery_configured, owner_evidence
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
         supplied=self.headers.get('Authorization','')
         if len(secret)<32 or not hmac.compare_digest(supplied.encode(),('Bearer '+secret).encode()):return self.send(401,{'error':'Worker authorization required'})
         try:return self.send(200,suppliers.send_email_queue(limit=1))
-        except suppliers.WorkflowError as error:return self.send(error.status,{'error':str(error)})
+        except suppliers.WorkflowError as error:return self.send(error.status,{'error':str(error),'field':getattr(error,'field',None)})
         except Exception:return self.send(503,{'error':'Worker unavailable; saved jobs remain queued'})
 
     def authorized(self):
@@ -88,7 +89,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = urlparse(self.path).path
-        aliases={'/supplier.html':'/supplier','/supplier-account':'/supplier/account','/supplier-account.html':'/supplier/account','/marketplace.html':'/marketplace','/inquiry.html':'/inquiry','/assessment.html':'/assessment','/rfq':'/assessment','/supplier-portal':'/supplier/account','/business-information':'/#launch-status'}
+        if route in engine_http.GETS:return engine_http.get(self,route)
+        aliases={'/home':'/','/supplier.html':'/supplier','/supplier-account':'/supplier/account','/supplier-account.html':'/supplier/account','/marketplace.html':'/marketplace','/inquiry.html':'/inquiry','/assessment.html':'/assessment','/rfq':'/assessment','/supplier-portal':'/supplier/account','/business-information':'/#launch-status'}
         if route in aliases:return self.send(308,b'',headers={'Location':aliases[route]})
         if route=='/api/jobs/mail':return self.mail_job()
         if route.startswith('/api/marketplace/') or route == '/api/marketplace':
@@ -112,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
         files = {'/fonts/inter-latin.woff2': ('fonts/inter-latin.woff2','font/woff2'), '/fonts/inter-greek.woff2': ('fonts/inter-greek.woff2','font/woff2'), '/visual.js': ('visual.js','application/javascript'), '/reference.css': ('reference.css','text/css'), '/': ('home.html', 'text/html; charset=utf-8'), '/supplier': ('supplier.html','text/html; charset=utf-8'), '/admin': ('admin.html','text/html; charset=utf-8'), '/access': ('access.html','text/html; charset=utf-8'), '/portal': ('portal.html','text/html; charset=utf-8'), '/site.js': ('site.js','application/javascript'), '/site.css': ('site.css','text/css'), '/ai': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}
         files.update({'/marketplace':('marketplace.html','text/html; charset=utf-8'), '/supplier/account':('supplier-account.html','text/html; charset=utf-8'), '/market.js':('market.js','application/javascript'), '/market.css':('market.css','text/css'), '/dialogs.js':('dialogs.js','application/javascript')})
         files.update({path:(name,'text/html; charset=utf-8') for path,name in [('/inquiry','inquiry.html'),('/privacy','privacy.html'),('/terms','terms.html')]})
+        files['/leads.js']=('leads.js','application/javascript')
+        files['/manager.js']=('manager.js','application/javascript')
         files['/storage.js']=('storage.js','application/javascript')
         files['/intake.js']=('intake.js','application/javascript')
         files['/operations.js']=('operations.js','application/javascript')
@@ -158,6 +162,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
+        if route in engine_http.POSTS:return engine_http.post(self,route)
+        if route=='/api/suppliers':return self.market_post('/api/marketplace/register')
         if route=='/api/jobs/mail':return self.mail_job()
         if route == '/api/inquiries':
             return self.inquiry_post()
@@ -177,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 public_ai.throttle(self.client_ip())
             except suppliers.WorkflowError as error:
-                return self.send(error.status, {'error':str(error)}, headers={'Retry-After':'60'})
+                return self.send(error.status, {'error':str(error),'field':getattr(error,'field',None)}, headers={'Retry-After':'60'})
             except Exception:
                 return self.send(503, {'error':'Usage controls are unavailable. Please try again later.'})
         with LOCK:
@@ -223,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = reply(messages, public=True)
             return self.send(200, result)
         except suppliers.WorkflowError as error:
-            return self.send(error.status, {'error':str(error)}, headers={'Retry-After':'60'} if error.status == 429 else None)
+            return self.send(error.status, {'error':str(error),'field':getattr(error,'field',None)}, headers={'Retry-After':'60'} if error.status == 429 else None)
         except ProviderError as error:
             return self.send(502, {'error':str(error), 'code':error.code})
         except Exception:
@@ -240,8 +246,11 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(10)
             data=json.loads(self.rfile.read(length))
             if not isinstance(data,dict):raise ValueError()
-            return self.send(200,intake.submit(data))
-        except suppliers.WorkflowError as error:return self.send(error.status,{'error':str(error)})
+            result=intake.submit(data)
+            result['email_notification_status']=mail_policy.dispatch_entity('customer',result['id'])
+            result['email_notification_transport']=mail_policy.transport()
+            return self.send(200,result)
+        except suppliers.WorkflowError as error:return self.send(error.status,{'error':str(error),'field':getattr(error,'field',None)})
         except (ValueError,TypeError,UnicodeError):return self.send(400,{'error':'Invalid inquiry. Check the form fields.'})
         except Exception:return self.send(503,{'error':'We could not confirm that your inquiry was saved. Keep your details and retry the same submission; duplicate retries are protected.'})
 
@@ -261,18 +270,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,marketplace.photo(route.rsplit('/',1)[-1]),'image/jpeg',{'Content-Security-Policy':"sandbox; default-src 'none'"})
             return self.send(404,{'error':'Not found'})
         except suppliers.WorkflowError as error:
-            return self.send(error.status,{'error':str(error)})
+            return self.send(error.status,{'error':str(error),'field':getattr(error,'field',None)})
         except Exception:
             return self.send(503,{'error':'Marketplace is temporarily unavailable. Please try again later.'})
 
     def market_post(self, route):
-        allowed=('/api/marketplace/register','/api/marketplace/request-access','/api/marketplace/consume','/api/marketplace/products','/api/marketplace/withdraw','/api/marketplace/logout','/api/marketplace/report')
+        allowed=('/api/marketplace/profile','/api/marketplace/register','/api/marketplace/request-access','/api/marketplace/consume','/api/marketplace/products','/api/marketplace/withdraw','/api/marketplace/logout','/api/marketplace/report')
         if route not in allowed:return self.send(404,{'error':'Not found'})
         if not self.origin_allowed():return self.send(403,{'error':'Origin not allowed'})
         if self.headers.get('Content-Type','').split(';')[0]!='application/json':return self.send(415,{'error':'JSON required'})
         try:
-            maximum=750000 if route in ('/api/marketplace/register','/api/marketplace/products') else 12000
-            if route in ('/api/marketplace/products','/api/marketplace/withdraw'):
+            maximum=750000 if route in ('/api/marketplace/register','/api/marketplace/products') else 20000 if route=='/api/marketplace/profile' else 12000
+            if route in ('/api/marketplace/products','/api/marketplace/withdraw','/api/marketplace/profile'):
                 marketplace.identity(self.session_token())
             length=int(self.headers.get('Content-Length','0'))
             if not 0<length<=maximum:return self.send(413,{'error':'Request is too large or empty.'})
@@ -286,6 +295,10 @@ class Handler(BaseHTTPRequestHandler):
                 result,message_id=marketplace.register(data,immediate=True)
                 token=result.pop('_session',None)
                 if token:response_headers=self.session_cookie(token)
+            elif route=='/api/marketplace/profile':
+                from app import operations
+                account=marketplace.identity(self.session_token());suppliers.rate_limit('profile-edit:'+account['id'],10,3600)
+                result=operations.supplier_action({'id':account['id'],'action':'edit','profile':data.get('profile')},'supplier:'+account['id'])
             elif route=='/api/marketplace/request-access':result,message_id=marketplace.request_access(data)
             elif route=='/api/marketplace/consume':
                 result,token=marketplace.consume(data)
@@ -297,12 +310,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,suppliers.logout(self.session_token()),headers=self.session_cookie(''))
             # Run before the response: serverless runtimes can freeze background workers.
             # A failed attempt stays in the outbox for the mail worker; responses never enumerate accounts.
-            if message_id and os.environ.get('SMTP_HOST') and os.environ.get('MAIL_FROM'):
+            if message_id and mail_policy.transport() not in ('admin_inbox','webhook'):
                 try:suppliers.send_email_queue(limit=1,message_id=message_id)
                 except Exception:pass
+            if route=='/api/marketplace/register' and result.get('published'):
+                result['email_notification_status']=mail_policy.dispatch_entity('supplier',result['supplier_id'])
+                result['email_notification_transport']=mail_policy.transport()
+                try:
+                    query=result['supplier']['title']+' '+result['supplier']['description']
+                    from app.ai_providers import budget
+                    with budget(25):result['buyer_leads']=__import__('app.discovery',fromlist=['find_leads']).find_leads({'query':query[:600],'geography':'','lead_type':'buyer_lead'},'supplier:'+result['supplier_id']) if configured() and result.get('new_submission') else {'status':'not_requested_or_replayed','external_leads':[],'message':'Configure an AI key for source-backed buyer discovery.'}
+                except Exception:result['buyer_leads']={'status':'unavailable','external_leads':[],'message':'Publication succeeded; buyer research was unavailable. Retry in the account Lead Finder.'}
             return self.send(200,result,headers=response_headers)
         except suppliers.WorkflowError as error:
-            return self.send(error.status,{'error':str(error)})
+            return self.send(error.status,{'error':str(error),'field':getattr(error,'field',None)})
         except (ValueError,TypeError,UnicodeError):
             return self.send(400,{'error':'Invalid request.'})
         except Exception:
@@ -356,7 +377,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, suppliers.profile(identity))
             return self.send(404, {'error':'Not found'})
         except suppliers.WorkflowError as error:
-            return self.send(error.status, {'error':str(error)})
+            return self.send(error.status, {'error':str(error),'field':getattr(error,'field',None)})
         except Exception:
             return self.send(503, {'error':'Supplier service is temporarily unavailable.'})
 
@@ -410,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
                 with suppliers.database() as db:controls.event(db,identity['actor'],route.rsplit('/',1)[-1],str(data.get('id',''))[:100])
             return self.send(200, result)
         except suppliers.WorkflowError as error:
-            return self.send(error.status, {'error':str(error)})
+            return self.send(error.status, {'error':str(error),'field':getattr(error,'field',None)})
         except (ValueError, TypeError, UnicodeError):
             return self.send(400, {'error':'Invalid request.'})
         except Exception:

@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS public_ai_slots (id TEXT PRIMARY KEY, expires_at BIGI
 '''
 
 
-def enabled():return os.environ.get('PUBLIC_AI_ENABLED','true').lower()=='true'
+def enabled():
+    from app.settings import ai_configuration
+    return bool(ai_configuration()['key']) or os.environ.get('PUBLIC_AI_ENABLED','true').lower()=='true'
 
 
 def positive_setting(name,default,maximum):

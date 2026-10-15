@@ -50,9 +50,10 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 '''
 
 class WorkflowError(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, field=None):
         super().__init__(message)
         self.status = status
+        self.field = field
 
 
 class DB:
@@ -129,9 +130,10 @@ def public_base():
 
 
 def field(data, key, minimum=1, maximum=200):
-    value = data.get(key, '')
+    from app.normalization import text
+    value = text(data.get(key, ''))
     if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum:
-        raise WorkflowError(f'Check the {key.replace("_", " ")} field.')
+        raise WorkflowError(f'Check the {key.replace("_", " ")} field.',field=key)
     value = value.strip()
     if any(ord(c) < 32 and c not in '\n\t' for c in value):
         raise WorkflowError('Invalid text characters.')
@@ -310,12 +312,9 @@ def send_email_queue(limit=10, message_id=None):
     """At-least-once delivery: SMTP cannot offer atomic exactly-once delivery."""
     from app.intake import queue_pending
     from app import mail_policy
-    if os.environ.get('MAIL_DELIVERY_ENABLED','false')!='true':raise WorkflowError('Email delivery is disabled; saved jobs remain queued.',503)
+    if mail_policy.transport()=='admin_inbox':raise WorkflowError('Email delivery is disabled or unconfigured; saved jobs remain queued.',503)
     limit=max(1,min(int(limit),10))
     with database() as db: queue_pending(db)
-    host, sender = os.environ.get('SMTP_HOST'), os.environ.get('MAIL_FROM')
-    if not host or not sender: raise WorkflowError('SMTP is not configured. Emails remain queued.',503)
-    sender=email_address({'email':sender})
     sent, failed = 0, 0
     for _ in range(limit):
         with database() as db:
@@ -336,23 +335,18 @@ def send_email_queue(limit=10, message_id=None):
                 mail_policy.state(db,claimed['id'],'rate_limited')
             break
         try:
-            message = EmailMessage()
-            message['From'], message['To'], message['Subject'] = sender, claimed['recipient'], claimed['subject']
-            message['Message-ID'] = '<'+claimed['id']+'@'+sender.split('@')[-1]+'>'
-            message.set_content(claimed['body'])
-            with smtplib.SMTP(host, int(os.environ.get('SMTP_PORT','587')), timeout=8) as smtp:
-                smtp.starttls(context=ssl.create_default_context())
-                if os.environ.get('SMTP_USER'): smtp.login(os.environ['SMTP_USER'], os.environ['SMTP_PASSWORD'])
-                smtp.send_message(message)
+            mail_policy.send(claimed['recipient'],claimed['subject'],claimed['body'],claimed['id'],authentication=claimed['subject'] in mail_policy.SUBJECTS)
             with database() as db:
                 db.execute("UPDATE outbox SET sent_at=?,body='' WHERE id=?", (now(),claimed['id']))
                 mail_policy.state(db,claimed['id'],'smtp_accepted')
+                mail_policy.record_attempt(db,claimed['id'],'sent')
             sent += 1
         except Exception:
             failed += 1  # Never expose provider errors or email contents in logs.
             with database() as db:
                 row=db.execute('SELECT attempts FROM outbox WHERE id=?',(claimed['id'],)).fetchone()
                 mail_policy.state(db,claimed['id'],'exhausted' if row and row['attempts']>=5 else 'retry_pending')
+                mail_policy.record_attempt(db,claimed['id'],'failed','Transport did not confirm acceptance. Check private hosting configuration and provider logs.')
     return {'sent':sent,'failed':failed}
 
 
