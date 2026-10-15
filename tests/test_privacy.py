@@ -16,8 +16,9 @@ class PrivacyTests(unittest.TestCase):
                 self.assertNotIn('alibaba',buyer_safe(value).lower())
 
     def test_official_actions_remain_available(self):
-        for value in ['https://app.minup.io/book/stratevo', 'hello@stratevo.co', 'https://stratevo.online', 'MOQ is 3.5 pieces; 7.5ft tree']:
+        for value in ['https://app.minup.io/book/stratevo', 'https://stratevo.online', 'MOQ is 3.5 pieces; 7.5ft tree']:
             self.assertEqual(safe_answer(value),value)
+        self.assertIn('remain private',safe_answer('hello@stratevo.co'))
         for value in ['https://app.minup.io/book/stratevo?redirect=https://example.com', 'https://stratevo.online.evil.com', 'https://stratevo.online@evil.com']:
             self.assertIn('remain private',safe_answer(value))
 

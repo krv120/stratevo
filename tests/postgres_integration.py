@@ -21,10 +21,14 @@ with tempfile.TemporaryDirectory(dir='private') as directory:
             db.execute(Path('migrations/001_private_platform.sql').read_text())
             db.execute(Path('migrations/002_private_discovery.sql').read_text())
             db.execute(Path('migrations/003_public_ai_marketplace.sql').read_text())
+            db.execute(Path('migrations/004_private_inquiries.sql').read_text())
+            db.execute(Path('migrations/005_operational_hardening.sql').read_text())
             db.execute('CREATE ROLE anon; CREATE ROLE authenticated;')
             db.execute(Path('migrations/001_private_platform.sql').read_text())
             db.execute(Path('migrations/002_private_discovery.sql').read_text())
             db.execute(Path('migrations/003_public_ai_marketplace.sql').read_text())
+            db.execute(Path('migrations/004_private_inquiries.sql').read_text())
+            db.execute(Path('migrations/005_operational_hardening.sql').read_text())
         suppliers.initialize()
         fixture = write_fixture(Path(directory)/'synthetic-fixture.json')
         assert catalog.import_json(fixture)==60
@@ -101,7 +105,7 @@ with tempfile.TemporaryDirectory(dir='private') as directory:
         assert sum(outcomes)==3,outcomes
         with suppliers.database() as db:assert db.execute('SELECT COUNT(*) AS n FROM public_ai_slots').fetchone()['n']==0
         print('PASS PostgreSQL atomic shared public AI daily budget and concurrency lease cleanup')
-        for table in ('market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots'):
+        for table in ('market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots','processing_slots','resource_locks','account_controls','security_events','listing_reports','mail_state','admin_session_meta','admin_totp','ai_metrics'):
             with psycopg.connect(url) as db:
                 db.execute('GRANT USAGE ON SCHEMA stratevo_private TO anon')
                 db.execute('GRANT SELECT ON stratevo_private.'+table+' TO anon')
@@ -109,6 +113,47 @@ with tempfile.TemporaryDirectory(dir='private') as directory:
                 assert db.execute('SELECT COUNT(*) FROM stratevo_private.'+table).fetchone()[0]==0
                 db.rollback()
         print('PASS PostgreSQL RLS protection of all marketplace and public AI internal tables')
+        from app import intake
+        from test_intake import inquiry
+        os.environ['NOTIFICATION_EMAIL']='owner@example.invalid'
+        data=inquiry()
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            responses=list(pool.map(lambda _:intake.submit(data),range(6)))
+        assert len({r['id'] for r in responses})==1
+        with suppliers.database() as db:
+            assert db.execute('SELECT COUNT(*) AS n FROM customer_inquiries').fetchone()['n']==1
+            assert db.execute("SELECT COUNT(*) AS n FROM notification_jobs WHERE entity_type='customer'").fetchone()['n']==1
+        intake.update({'id':responses[0]['id'],'status':'qualified'})
+        assert len(intake.list_inquiries('qualified')['inquiries'])==1
+        # Queue a supplier job that initially had no owner destination, concurrently.
+        def queue(_):
+            with suppliers.database() as db:return intake.queue_pending(db)
+        with ThreadPoolExecutor(max_workers=6) as pool:queued=list(pool.map(queue,range(6)))
+        assert sum(queued)==1,queued
+        for table in intake.TABLES:
+            with psycopg.connect(url) as db:
+                db.execute('GRANT USAGE ON SCHEMA stratevo_private TO anon')
+                db.execute('GRANT SELECT ON stratevo_private.'+table+' TO anon')
+                db.execute('SET ROLE anon')
+                assert db.execute('SELECT COUNT(*) FROM stratevo_private.'+table).fetchone()[0]==0
+                db.rollback()
+        print('PASS PostgreSQL inquiry retry races, owner-notification recovery races, private status filtering and new-table RLS')
+        from app import controls, maintenance
+        with controls.image_slot():
+            with suppliers.database() as db:assert db.execute('SELECT COUNT(*) AS n FROM processing_slots').fetchone()['n']==1
+        from app import marketplace
+        assert marketplace.listings(query='%')['total']==0
+        target=marketplace.admin_accounts()['accounts'][0]['id']
+        controls.suspension({'id':target,'suspended':True,'reason':'Synthetic postgres suspension'},'pg-test-admin')
+        assert marketplace.listings()['total']==0
+        controls.suspension({'id':target,'suspended':False,'reason':'Synthetic postgres restoration'},'pg-test-admin')
+        assert marketplace.listings()['total']==0
+        assert maintenance.export('supplier',target)['id']==target
+        os.environ['RIGHTS_ERASURE_APPROVED']='true'
+        maintenance.erase({'kind':'supplier','id':target,'confirm':target},'pg-test-admin')
+        assert marketplace.admin_accounts()['accounts']==[]
+        print('PASS PostgreSQL processing leases, SQL search escaping, suspension/restoration and guarded privacy erasure')
+
         for role in ['anon','authenticated']:
             with psycopg.connect(url) as db:
                 db.execute('SET ROLE '+role)

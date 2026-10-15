@@ -11,7 +11,7 @@ import secrets
 import uuid
 import warnings
 from decimal import Decimal, InvalidOperation
-from app import suppliers as s
+from app import suppliers as s, controls
 from app.privacy import buyer_safe, normalized
 
 CATEGORIES = ('industrial', 'packaging', 'consumer', 'food')
@@ -49,6 +49,10 @@ def clean_text(value, profile):
 
 def image_data(encoded):
     if not encoded:return ''
+    with controls.image_slot():return decode_image(encoded)
+
+
+def decode_image(encoded):
     if not isinstance(encoded,str) or len(encoded)>700000:raise s.WorkflowError('Product photo must be JPEG, PNG or WebP, up to 500 KB.')
     try:
         from PIL import Image, ImageOps
@@ -83,7 +87,7 @@ def product_data(data, profile):
     unit=s.field(data,'unit',maximum=30)
     if unit not in ('pieces','sets','kilograms','litres','metres'):raise s.WorkflowError('Choose a selling unit.')
     quantity=data.get('moq')
-    if isinstance(quantity,bool) or not isinstance(quantity,(int,float)) or not math.isfinite(quantity) or not 0<quantity<=1e9:raise s.WorkflowError('MOQ must be a positive number.')
+    if quantity is not None and (isinstance(quantity,bool) or not isinstance(quantity,(int,float)) or not math.isfinite(quantity) or not 0<quantity<=1e9):raise s.WorkflowError('MOQ must be a positive number.')
     price=data.get('price','')
     currency=data.get('currency','')
     if price not in ('',None):
@@ -102,17 +106,15 @@ def product_data(data, profile):
 
 
 def private_profile(data):
-    profile={key:s.field(data,key,maximum=maximum) for key,maximum in [('company',200),('contact',200),('country',100),('license_number',150)]}
+    profile={key:s.field(data,key,maximum=maximum) for key,maximum in [('company',200),('contact',200),('country',100),('city',100)]}
     profile['email']=s.email_address(data)
     profile['whatsapp']=s.field(data,'whatsapp',minimum=0,maximum=60)
     profile['wechat']=s.field(data,'wechat',minimum=0,maximum=100)
-    if not profile['whatsapp'] and not profile['wechat']:raise s.WorkflowError('Provide WhatsApp or WeChat.')
+    profile['license_number']=s.field(data,'license_number',minimum=0,maximum=150)
     if data.get('consent') is not True:raise s.WorkflowError('Confirm the private-data and email-verification notice.')
-    encoded=s.field(data,'license_pdf',maximum=2800000)
-    try:document=base64.b64decode(encoded,validate=True)
-    except Exception:raise s.WorkflowError('Upload a valid business license PDF.') from None
-    if not document.startswith(b'%PDF-') or not 20<=len(document)<=2*1024*1024:raise s.WorkflowError('Business license must be a PDF up to 2 MB.')
-    profile['license_pdf']=encoded
+    if data.get('license_pdf'):
+        raise s.WorkflowError('Document uploads are disabled until malware scanning and quarantine are implemented. Submit without a document.',503)
+    profile['license_pdf']=''
     return profile
 
 
@@ -132,11 +134,14 @@ def register(data):
     payload,image=product_data(data.get('product'),profile)
     message_id=None
     with s.database() as db:
+        controls.capacity(db,'account',len(image))
         owner=str(uuid.uuid4())
         inserted=db.execute('INSERT INTO market_accounts VALUES (?,?,?,?,NULL) ON CONFLICT(email) DO NOTHING RETURNING id',(owner,profile['email'],json.dumps(profile),s.now())).fetchone()
         if inserted:
             db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),owner,json.dumps(payload),image,'published',s.now()))
             message_id=issue(db,{'id':owner,'email':profile['email']})
+            from app.intake import enqueue
+            enqueue(db,'supplier',owner,'Product category: '+payload['category']+'; business country: '+profile['country'])
     return {'message':'If this email is eligible, a confirmation email is queued. Products appear only after email confirmation, without manager approval. If you already registered, request a fresh access link.'},message_id
 
 
@@ -145,7 +150,7 @@ def request_access(data):
     s.public_base();email=s.email_address(data);message_id=None
     with s.database() as db:
         account=db.execute('SELECT id,email FROM market_accounts WHERE email=?',(email,)).fetchone()
-        if account:message_id=issue(db,account)
+        if account and not controls.suspended(db,account['id']):message_id=issue(db,account)
     return {'message':'If this email has an eligible supplier account, a secure confirmation/sign-in link is queued.'},message_id
 
 
@@ -155,6 +160,7 @@ def consume(data):
     with s.database() as db:
         token=db.execute('UPDATE market_tokens SET used_at=? WHERE digest=? AND used_at IS NULL AND expires_at>? RETURNING owner_id',(s.now(),s.digest(raw),s.now())).fetchone()
         if not token:raise s.WorkflowError('This link expired or was already used. Request a new link.',410)
+        if controls.suspended(db,token['owner_id']):raise s.WorkflowError('This supplier account is suspended.',403)
         db.execute('UPDATE market_accounts SET verified_at=COALESCE(verified_at,?) WHERE id=?',(s.now(),token['owner_id']))
         session=s.session(db,'publisher',token['owner_id'])
     return {'status':'active','redirect':'/supplier/account','message':'Email confirmed. Your submitted products are now published. No manager approval is needed.'},session
@@ -180,19 +186,25 @@ def listings(query='',category='',offset=0):
     try:offset=int(offset)
     except (ValueError,TypeError):raise s.WorkflowError('Invalid page.') from None
     if not 0<=offset<=100000:raise s.WorkflowError('Invalid page.')
-    # Projection is JSON, but filter fields are extracted in Python to keep both backends consistent.
-    # Bound the retrieval; this is a small catalog, not an unlimited supplier directory.
     with s.database() as db:
-        rows=db.execute("SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE a.verified_at IS NOT NULL AND p.visibility='published' ORDER BY p.created_at DESC,p.id LIMIT 2000").fetchall()
-    items=[public_product(row) for row in rows]
-    words=query.casefold().split()
-    items=[r for r in items if (not category or r['category']==category) and all(w in (r['title']+' '+r['description']).casefold() for w in words)]
-    return {'products':items[offset:offset+24], 'total':len(items),'has_more':len(items)>offset+24,'offset':offset,'notice':NOTICE,'scan_limit':2000}
+        title="(p.public_payload::jsonb->>'title')" if db.postgres else "json_extract(p.public_payload,'$.title')"
+        description="(p.public_payload::jsonb->>'description')" if db.postgres else "json_extract(p.public_payload,'$.description')"
+        category_field="(p.public_payload::jsonb->>'category')" if db.postgres else "json_extract(p.public_payload,'$.category')"
+        clauses=["a.verified_at IS NOT NULL","p.visibility='published'","NOT EXISTS (SELECT 1 FROM account_controls c WHERE c.account_id=a.id AND c.suspended=1)"]
+        values=[]
+        if category:clauses.append(category_field+'=?');values.append(category)
+        for word in query.lower().split()[:12]:
+            clauses.append("LOWER("+title+" || ' ' || "+description+") LIKE ? ESCAPE '!'")
+            values.append('%'+word.replace('!','!!').replace('%','!%').replace('_','!_')+'%')
+        where=' AND '.join(clauses)
+        total=db.execute('SELECT COUNT(*) AS n FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE '+where,tuple(values)).fetchone()['n']
+        rows=db.execute("SELECT p.id,p.public_payload,CASE WHEN p.image='' THEN '' ELSE 'yes' END AS image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE "+where+' ORDER BY p.created_at DESC,p.id LIMIT 24 OFFSET ?',tuple(values+[offset])).fetchall()
+    return {'products':[public_product(row) for row in rows],'total':total,'has_more':total>offset+24,'offset':offset,'notice':NOTICE,'scan_limit':None}
 
 
 def photo(product_id):
     with s.database() as db:
-        row=db.execute("SELECT p.image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE p.id=? AND a.verified_at IS NOT NULL AND p.visibility='published'",(product_id,)).fetchone()
+        row=db.execute("SELECT p.image FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE p.id=? AND a.verified_at IS NOT NULL AND p.visibility='published' AND NOT EXISTS (SELECT 1 FROM account_controls c WHERE c.account_id=a.id AND c.suspended=1)",(product_id,)).fetchone()
     if not row or not row['image']:raise s.WorkflowError('Photo not found.',404)
     return base64.b64decode(row['image'])
 
@@ -200,7 +212,7 @@ def photo(product_id):
 def mine(raw):
     account=identity(raw)
     profile=json.loads(account['private_profile'])
-    with s.database() as db:rows=db.execute('SELECT id,public_payload,image,visibility FROM market_products WHERE owner_id=? ORDER BY created_at DESC',(account['id'],)).fetchall()
+    with s.database() as db:rows=db.execute("SELECT id,public_payload,CASE WHEN image='' THEN '' ELSE 'yes' END AS image,visibility FROM market_products WHERE owner_id=? ORDER BY created_at DESC",(account['id'],)).fetchall()
     return {'profile':{k:profile[k] for k in ('company','contact','email','country')},'products':[{**public_product(r),'visibility':r['visibility']} for r in rows]}
 
 
@@ -209,10 +221,13 @@ def add_product(raw,data):
     s.rate_limit('market-add:'+account['id'],20,3600)
     payload,image=product_data(data,json.loads(account['private_profile']))
     with s.database() as db:
+        controls.capacity(db,'product',len(image))
+        if controls.suspended(db,account['id']):raise s.WorkflowError('This supplier account is suspended.',403)
         # Lock the owner row to make the 50-product cap atomic on PostgreSQL too.
         db.execute('UPDATE market_accounts SET created_at=created_at WHERE id=?',(account['id'],))
-        count=db.execute('SELECT COUNT(*) AS n FROM market_products WHERE owner_id=?',(account['id'],)).fetchone()['n']
-        if count>=50:raise s.WorkflowError('The account product limit has been reached.',409)
+        count=db.execute("SELECT COUNT(*) AS n FROM market_products WHERE owner_id=? AND visibility='published'",(account['id'],)).fetchone()['n']
+        stored=db.execute('SELECT COUNT(*) AS n FROM market_products WHERE owner_id=?',(account['id'],)).fetchone()['n']
+        if count>=50 or stored>=500:raise s.WorkflowError('Account limit: 50 active listings or 500 retained records. Withdraw active listings or request retention review.',409)
         db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),account['id'],json.dumps(payload),image,'published',s.now()))
     return {'message':'Product published to the Marketplace.'}
 
@@ -235,7 +250,7 @@ def moderate(data):
 
 def research_rows():
     with s.database() as db:
-        rows=db.execute("SELECT p.id,p.public_payload FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE a.verified_at IS NOT NULL AND p.visibility='published' ORDER BY p.created_at DESC LIMIT 2000").fetchall()
+        rows=db.execute("SELECT p.id,p.public_payload FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE a.verified_at IS NOT NULL AND p.visibility='published' AND NOT EXISTS (SELECT 1 FROM account_controls c WHERE c.account_id=a.id AND c.suspended=1) ORDER BY p.created_at DESC LIMIT 2000").fetchall()
     result=[]
     for row in rows:
         p=json.loads(row['public_payload'])
@@ -247,21 +262,29 @@ def research_rows():
     return result
 
 
-def admin_accounts():
+def admin_accounts(offset=0):
     """Manager-only private registry; never return license bytes in a list response."""
+    try:offset=int(offset)
+    except (ValueError,TypeError):raise s.WorkflowError('Invalid page.') from None
+    if not 0<=offset<=100000:raise s.WorkflowError('Invalid page.')
     with s.database() as db:
-        rows=db.execute('SELECT id,email,private_profile,verified_at FROM market_accounts ORDER BY created_at DESC,id LIMIT 25').fetchall()
+        rows=db.execute('SELECT id,email,private_profile,verified_at FROM market_accounts ORDER BY created_at DESC,id LIMIT 26 OFFSET ?',(offset,)).fetchall()
         records=[]
-        for row in rows:
+        for row in rows[:25]:
             profile=json.loads(row['private_profile'])
             products=db.execute("SELECT id,public_payload,CASE WHEN image='' THEN '' ELSE 'yes' END AS image,visibility FROM market_products WHERE owner_id=? ORDER BY created_at DESC",(row['id'],)).fetchall()
-            records.append({'id':row['id'],'email_confirmed':row['verified_at'] is not None,
-                'profile':{key:profile.get(key,'') for key in ('company','contact','country','email','whatsapp','wechat','license_number')},
+            records.append({'id':row['id'],'suspended':controls.suspended(db,row['id']),'email_confirmed':row['verified_at'] is not None,
+                'created_at':db.execute('SELECT created_at FROM market_accounts WHERE id=?',(row['id'],)).fetchone()['created_at'],
+                'review_status':(dict(db.execute('SELECT status FROM supplier_reviews WHERE account_id=?',(row['id'],)).fetchone() or {}).get('status','new')),
+                'has_license':bool(profile.get('license_pdf')),
+                'profile':{key:profile.get(key,'') for key in ('company','contact','country','city','email','whatsapp','wechat','license_number')},
                 'products':[{**public_product(p),'visibility':p['visibility']} for p in products]})
-    return {'accounts':records,'limit':25,'notice':'Private supplier registry. Email confirmation publishes products automatically; no approval action exists.'}
+    return {'accounts':records,'limit':25,'offset':offset,'has_more':len(rows)>25,'notice':'Private supplier registry. Email confirmation publishes products automatically; no approval action exists.'}
 
 
 def license_document(account_id):
     with s.database() as db:row=db.execute('SELECT private_profile FROM market_accounts WHERE id=?',(account_id,)).fetchone()
     if not row:raise s.WorkflowError('Supplier account not found.',404)
-    return base64.b64decode(json.loads(row['private_profile'])['license_pdf'])
+    encoded=json.loads(row['private_profile']).get('license_pdf','')
+    if not encoded:raise s.WorkflowError('No license was uploaded.',404)
+    return base64.b64decode(encoded)

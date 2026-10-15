@@ -1,0 +1,12 @@
+/home/user/stratevo/.venv/lib/python3.11/site-packages/platformdirs/api.py:459: RuntimeDirWarning: XDG_RUNTIME_DIR is not set, falling back to /tmp/runtime-1001
+  return Path(self.user_runtime_dir)
+PASS PostgreSQL migration, idempotent catalog import and full-text search
+PASS PostgreSQL private discovery storage and persisted budget
+PASS PostgreSQL concurrent duplicate application is non-enumerating with one verification email
+PASS PostgreSQL verification, concurrent approval conflict, single access email, login and logout
+PASS PostgreSQL concurrent registration, single-use confirmation, automatic publication, private projection and ownership
+PASS PostgreSQL atomic shared public AI daily budget and concurrency lease cleanup
+PASS PostgreSQL RLS protection of all marketplace and public AI internal tables
+PASS PostgreSQL inquiry retry races, owner-notification recovery races, private status filtering and new-table RLS
+PASS PostgreSQL processing leases, SQL search escaping, suspension/restoration and guarded privacy erasure
+PASS anon/authenticated role denial and RLS protection of applications and discovery evidence

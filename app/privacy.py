@@ -46,12 +46,15 @@ def safe_answer(text):
     link. Replace the entire answer instead. Booking and owner contact are allowed.
     """
     text = normalized(text)
-    allowed = {'stratevo.online','www.stratevo.online','stratevo.co','www.stratevo.co'}
+    from app import settings
+    allowed = {urlsplit(settings.canonical()).hostname}
+    approved_contact=settings.contact()
+    approved_booking=urlsplit(settings.booking())
     if SOURCE.search(text):
         return private_answer()
     for found in LINK.finditer(text):
         target = found.group().rstrip('.,;:!?)')
-        if target.casefold() == 'hello@stratevo.co':continue
+        if approved_contact and target.casefold() == approved_contact.casefold():continue
         if '@' in target:return private_answer()
         try:
             url = urlsplit(target if '://' in target else 'https://' + target)
@@ -59,10 +62,11 @@ def safe_answer(text):
         except ValueError:
             return private_answer()
         if url.hostname in allowed:continue
-        if url.hostname == 'app.minup.io' and url.path.rstrip('/') == '/book/stratevo' and not url.query and not url.fragment:continue
+        if url == approved_booking:continue
         return private_answer()
     return text
 
 
 def private_answer():
-    return 'Supplier identities, contact details and source links remain private. I can compare anonymized evidence from the supplied research after you confirm the product, volume, preferred supplier location and required certifications. For human review: https://app.minup.io/book/stratevo'
+    from app.settings import booking
+    return 'Supplier identities, contact details and source links remain private. I can compare anonymized evidence from the supplied research after you confirm the product, volume, preferred supplier location and required certifications. For human review: '+booking()

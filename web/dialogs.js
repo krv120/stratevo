@@ -20,14 +20,14 @@
       const full=document.createElement('a');full.href=key;full.textContent='Open as page ↗';full.dataset.noDialog='true';
       full.addEventListener('click',e=>e.stopPropagation());
       bar.append(title,full,close);
-      const frame=document.createElement('iframe');frame.title=key==='/ai'?'STRATEVO AI chat':'Supplier details and product form';frame.src=key+'?embed=1'+url.hash;
+      const frame=document.createElement('iframe');frame.title=key==='/ai'?'STRATEVO AI chat':'Supplier details and product form';const frameURL=new URL(url);frameURL.searchParams.set('embed','1');frame.src=frameURL.pathname+frameURL.search+frameURL.hash;
       dialog.append(bar,frame);document.body.append(dialog);
       entry={dialog,frame,opener:a};dialogs.set(key,entry);
       close.onclick=()=>dialog.close();
       dialog.addEventListener('close',()=>{document.body.classList.remove('dialog-open');entry.opener.focus();});
       // Escape inside a same-origin iframe does not automatically reach the parent dialog.
       frame.addEventListener('load',()=>{try{frame.contentDocument.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();dialog.close();}});}catch{}});
-    }else if(url.hash){try{entry.frame.contentWindow.location.hash=url.hash;}catch{}}
+    }else {if(url.hash){try{entry.frame.contentWindow.location.hash=url.hash;}catch{}}if(url.searchParams.has('category'))entry.frame.contentWindow.postMessage({type:'stratevo-category',category:url.searchParams.get('category')},location.origin);}
     entry.opener=a;entry.dialog.showModal();document.body.classList.add('dialog-open');
   });
 })();

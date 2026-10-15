@@ -22,6 +22,8 @@ def private_path(path):
 
 class PostgresConnection:
     def __init__(self):
+        from app.settings import database_guard
+        database_guard()
         import psycopg
         self.raw = psycopg.connect(os.environ['DATABASE_URL'], connect_timeout=10)
         self.raw.execute('SET search_path TO stratevo_private')

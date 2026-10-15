@@ -1,5 +1,9 @@
 # Connect the AI and supplier accounts
 
+> **Current release: 2026.10.13-rc1.** Start with `FINAL-RELEASE-2026-10-13.md`, `LIVE-SOURCE-COMPARISON-2026-10-13.md`, `SEARCH-AND-MEASUREMENT-HANDOFF.md` and `RELEASE-TESTING.md`. Older reports below are historical, not current production evidence. No production deployment is authorized by this release.
+
+> **Latest hardening:** read `ENGINEERING-AUDIT-2026-10-12.md` and `OPERATIONS-HANDOFF.md` first. They supersede older upload, login, worker, retention and deployment instructions below. Migration 005 and explicit environment/service approvals are required; this is not launch approval.
+
 ## Your setup: Google Gemini, without Brave
 
 Use these server-side values in the project that runs this code:
@@ -37,10 +41,11 @@ Only OpenAI-compatible Chat Completions endpoints are supported by this adapter;
 
 API keys alone do not deploy the application or provision persistence. For hosted operation also set:
 
-- `DATABASE_URL`: private server-side PostgreSQL/Supabase connection string. Apply `migrations/001_private_platform.sql` followed by `002_private_discovery.sql` and `003_public_ai_marketplace.sql` first.
+- `DATABASE_URL`: private server-side PostgreSQL/Supabase connection string. Apply `migrations/001_private_platform.sql` followed by `002_private_discovery.sql`, `003_public_ai_marketplace.sql` and `004_private_inquiries.sql` first.
 - `PUBLIC_BASE_URL`: exact live HTTPS origin, without a path or trailing slash. Use the real deployment domain, not a preview URL from an old session.
 - `ADMIN_PASSWORD_HASH`: generate using `python3 -m app.suppliers hash-password`. Paste the entire hash as one value. This is not a plaintext password.
 - `COOKIE_SECURE=true` for HTTPS.
+- `NOTIFICATION_EMAIL`: verified owner/business destination for customer and supplier notifications (not the SMTP sender).
 - SMTP: `SMTP_HOST`, `SMTP_PORT` (normally `587`), `SMTP_USER`, `SMTP_PASSWORD`, and `MAIL_FROM` using an address your mail service authorizes.
 
 Schedule `python3 -m app.suppliers send-mail` on an appropriate backend worker. The manager's “Send next queued email” button supports manual delivery testing. Registration/access requests attempt their own email when SMTP is configured. A retry scheduler is still required; queued verification email is not the same as delivered email.
@@ -77,3 +82,9 @@ Restart after changing local settings. Never put a secrets file in `web/` or inc
 ## Current validation limit
 
 Configuration, response handling and account behavior are tested with isolated fixtures and mocked external providers. No real credentials have been added by this agent. Production AI/search requests and email delivery must be verified in your actual hosting environment after setup. The existing production site has not been replaced by these repository edits.
+
+## Owner notifications and public launch settings
+
+New customer and supplier submissions create an owner-notification job in the same transaction as the saved record. With `NOTIFICATION_EMAIL` and `PUBLIC_BASE_URL` configured, a corresponding SMTP outbox entry is created. The worker recovers jobs left waiting for configuration; saved submissions are not lost. The private customer inbox exposes queued/retry/exhausted/SMTP-accepted states. "Requeue failed owner notifications" resets only exhausted owner alerts, never expired supplier verification links. SMTP delivery still requires a running worker and a real inbox test.
+
+Keep `SITE_INDEXABLE=false` during staging, set `CANONICAL_BASE_URL` only after checking the production redirect, and retain `ALLOW_PREVIEW_EMBEDDING=false` in production. `true` is only needed for the Arena embedded preview.

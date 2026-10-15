@@ -49,3 +49,28 @@ def reserve():
     try:yield
     finally:
         with s.database() as db:db.execute('DELETE FROM public_ai_slots WHERE id=?',(lease,))
+
+
+@contextmanager
+def measure():
+    import time
+    started=time.monotonic();success=False
+    try:
+        yield
+        success=True
+    finally:
+        with s.database() as db:
+            db.execute('INSERT INTO ai_metrics(day,successes,failures,elapsed_ms) VALUES (?,?,?,?) ON CONFLICT(day) DO UPDATE SET successes=ai_metrics.successes+excluded.successes,failures=ai_metrics.failures+excluded.failures,elapsed_ms=ai_metrics.elapsed_ms+excluded.elapsed_ms',(datetime.now(timezone.utc).date().isoformat(),int(success),int(not success),int((time.monotonic()-started)*1000)))
+
+
+def metrics():
+    with s.database() as db:rows=db.execute('SELECT day,successes,failures,elapsed_ms,input_tokens,output_tokens FROM ai_metrics ORDER BY day DESC LIMIT 31').fetchall()
+    return {'days':[dict(row) for row in rows],'notice':'Request outcomes and aggregate elapsed time, not provider billing or a monetary spending cap. No conversation text stored.'}
+
+
+def usage(value):
+    if not isinstance(value,dict):return
+    counts=[value.get(name,0) for name in ('prompt_tokens','completion_tokens')]
+    if any(type(n) is not int or not 0<=n<=10000000 for n in counts):return
+    with s.database() as db:
+        db.execute('INSERT INTO ai_metrics(day,input_tokens,output_tokens) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET input_tokens=ai_metrics.input_tokens+excluded.input_tokens,output_tokens=ai_metrics.output_tokens+excluded.output_tokens',(datetime.now(timezone.utc).date().isoformat(),*counts))

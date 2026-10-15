@@ -1,6 +1,6 @@
 """Manager-only configuration diagnostics. No secret values or provider errors returned."""
 import os
-from app import agent, discovery, suppliers
+from app import agent, discovery, suppliers, intake
 
 
 def status():
@@ -10,6 +10,7 @@ def status():
         ai_ready = False
     return {'ai_configured':ai_ready,'search_configured':discovery.configured(),
             'email_configured':bool(os.environ.get('SMTP_HOST') and os.environ.get('MAIL_FROM')),
+            'owner_notification_configured':bool(intake.recipient()),
             'notice':'Configured is not a connection test. Keys are read from server environment variables; redeploy or restart after changing them.'}
 
 

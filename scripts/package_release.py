@@ -1,18 +1,19 @@
 """Build a reproducible source allowlist package without private data or credentials."""
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = ['PUBLIC-MARKETPLACE-UPDATE.md','REFERENCE-RESTORATION.md','START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
+ROOT_FILES = ['PUBLICATION-2026-10-15.md','FINAL-RELEASE-2026-10-13.md','LIVE-SOURCE-COMPARISON-2026-10-13.md','SEARCH-AND-MEASUREMENT-HANDOFF.md','RELEASE-TESTING.md','RELEASE-SCREENSHOTS.html','ENGINEERING-AUDIT-2026-10-12.md','OPERATIONS-HANDOFF.md','PRODUCTION-AUDIT-2026-10-12.md','PUBLIC-MARKETPLACE-UPDATE.md','REFERENCE-RESTORATION.md','START-HERE.md','README.md','AUDIT-REPORT.md','AI-KNOWLEDGE-GUIDE.md',
               'AI-EVALUATION.md','KEY-SETUP.md','DEPLOYMENT.md','SOURCING-AI-NOTES.md',
               'LIVE-SITE-AUDIT.md','.env.example','.gitignore','.vercelignore',
               'requirements.txt','vercel.json']
 DIRECTORIES = ['app','api','web','scripts','tests','migrations']
-SUFFIXES = {'.py','.js','.cjs','.css','.html','.sql','.json','.jsonl','.woff2','.txt'}
-LOGS = ['unit-tests.log','postgres-tests.log','browser-tests.log','bandit-after.json']
+SUFFIXES = {'.py','.js','.cjs','.css','.html','.sql','.json','.jsonl','.woff2','.txt','.svg','.jpg','.png'}
+LOGS = ['unit-tests.log','postgres-tests.log','browser-tests.log','bandit-after.json','audit-browser.log','accessibility.json','local-timings.json','pip-audit.json','quality-browser.log','quality-accessibility.json','quality-timings.json','storage-network.json','live-browser.json']
 
 
 def build():
@@ -35,14 +36,21 @@ def build():
         path = ROOT/'private'/'audit'/name
         if path.exists() and not path.is_symlink():
             files['validation/'+name] = path.read_bytes()
-    manifest = {'format_version':1,'note':'Source and synthetic validation only; hashes exclude this manifest itself.',
+    # Only named, reviewed screenshots of public pages; never arbitrary private images.
+    screenshots=['before-home-1440.png','after-home-1440.png','before-home-390.png','after-home-390.png','before-inquiry-1440.png','after-inquiry-1440.png','before-inquiry-390.png','after-inquiry-390.png','after-assessment-1440.png','after-assessment-390.png','after-methodology-1440.png','after-methodology-390.png']
+    for name in screenshots:
+        path=ROOT/'private'/'release-20261013'/name
+        if path.exists() and not path.is_symlink():files['validation/screenshots/'+name]=path.read_bytes()
+    commit=os.environ.get('STRATEVO_RELEASE_COMMIT','not-recorded')
+    if commit!='not-recorded' and not re.fullmatch('[a-f0-9]{40}',commit):raise ValueError('Invalid release commit identifier')
+    manifest = {'release_version':'2026.10.13-rc1','package_date':'2026-10-15','source_commit':commit,'format_version':1,'note':'Source and synthetic validation only; hashes exclude this manifest itself.',
                 'files':{name:hashlib.sha256(data).hexdigest() for name,data in sorted(files.items())}}
     files['MANIFEST.json'] = json.dumps(manifest,indent=2).encode()
-    output=ROOT/'private'/'stratevo-reviewed-source.zip'
+    output=ROOT/'private'/'STRATEVO-2026.10.13-rc1.zip'
     output.parent.mkdir(mode=0o700,exist_ok=True)
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for name,data in sorted(files.items()):
-            entry=zipfile.ZipInfo(name,date_time=(2026,10,9,0,0,0))
+            entry=zipfile.ZipInfo(name,date_time=(2026,10,15,0,0,0))
             entry.compress_type=zipfile.ZIP_DEFLATED
             entry.external_attr=0o100644 << 16
             archive.writestr(entry,data)

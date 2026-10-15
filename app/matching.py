@@ -5,7 +5,8 @@ import re
 from app import catalog
 from app.privacy import buyer_safe
 
-BOOKING = 'https://app.minup.io/book/stratevo'
+from app.settings import booking
+BOOKING = booking()
 HANDOFF = "The supplied research does not establish a qualifying match. A human needs to verify the missing evidence. Schedule a brief scoping call: " + BOOKING
 REQUIRED = ('product', 'volume', 'unit', 'location', 'certifications')
 

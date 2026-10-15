@@ -1,0 +1,7 @@
+PASS category CTA context, full-screen public AI, no credential fields, honest disconnected state, mocked general answer, Enter/Escape and retained chat
+PASS supplier popup, private details/product form, required-city validation and optional contact and invisible unconfirmed listing
+PASS test-outbox confirmation automatically publishes, redirects to supplier account, displays photo, filters products and retains private identity
+PASS authenticated supplier withdrawal, inaccessible withdrawn photo and automatic additional-product publication
+PASS listing report submission, private report triage and account suspension/session revocation
+PASS manager-only private registry and post-publication removal; no publication approval step
+PASS 320/390/768/1568 layouts, mobile popup and Marketplace navigation, reduced motion and zero JS exceptions

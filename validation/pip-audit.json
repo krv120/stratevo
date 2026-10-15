@@ -1,0 +1,1 @@
+{"dependencies": [{"name": "psycopg", "version": "3.2.10", "vulns": []}, {"name": "pillow", "version": "12.3.0", "vulns": []}, {"name": "psycopg-binary", "version": "3.2.10", "vulns": []}, {"name": "typing-extensions", "version": "4.16.0", "vulns": []}], "fixes": []}

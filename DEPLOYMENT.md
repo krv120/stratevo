@@ -1,5 +1,9 @@
 # Deployment handoff — Vercel + private PostgreSQL/Supabase
 
+> **Current release: 2026.10.13-rc1.** Start with `FINAL-RELEASE-2026-10-13.md`, `LIVE-SOURCE-COMPARISON-2026-10-13.md`, `SEARCH-AND-MEASUREMENT-HANDOFF.md` and `RELEASE-TESTING.md`. Older reports below are historical, not current production evidence. No production deployment is authorized by this release.
+
+> **Latest hardening:** read `ENGINEERING-AUDIT-2026-10-12.md` and `OPERATIONS-HANDOFF.md` first. They supersede older upload, login, worker, retention and deployment instructions below. Migration 005 and explicit environment/service approvals are required; this is not launch approval.
+
 This is a new application candidate. First confirm which existing Vercel project serves `stratevo.online`; do not overwrite the current site without a rollback plan. No production deployment was performed during this work.
 
 ## 1. Persistent private database
@@ -14,6 +18,7 @@ Example using a securely configured environment (never put credentials in comman
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_private_platform.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_private_discovery.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_public_ai_marketplace.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/004_private_inquiries.sql
 # Optional: import only your actual reviewed private file, when available.
 # python3 -m app.catalog private/reviewed-research.json
 ```
@@ -70,3 +75,11 @@ No payment/order marketplace or guarantee of supplier certification is part of t
 Read `PUBLIC-MARKETPLACE-UPDATE.md`. Migration 003 is required for both Marketplace and anonymous AI limits. No migrations run inside Vercel requests. Install Pillow via `requirements.txt`. Maximum new-registration JSON body is 3.6 MB (2 MB private PDF plus 500 KB photo, base64-encoded); do not increase file limits without checking hosting payload/memory limits. Images remain in the private database with public-only retrieval checks. Configure storage monitoring, pending-account cleanup and legal retention policy; cleanup is not automated here.
 
 Apply public AI quotas and provider-side spend limits before promotion. Raw search/discovery remains owner-only. Keep the server's real provider keys private; public access never requires publishing a token.
+
+## 12 October audit additions
+
+Migration 004 adds private customer inquiries, supplier review statuses and owner-notification intents; it does not replace existing tables. Configure `NOTIFICATION_EMAIL` as a verified destination distinct from `MAIL_FROM`. The existing STARTTLS mail worker now recovers waiting owner jobs. Schedule it on a suitable worker host with the same environment; no unauthenticated public mail runner or deployment scheduler is created. Notifications are at-least-once delivery; transactional/idempotent record creation does not make SMTP exactly-once. Monitor queued/exhausted messages in `/admin`, and use the owner-alert retry control after correcting delivery failures.
+
+Privacy/controller identity, processor/transfer terms, lawful-basis decisions, retention/deletion/backup procedures and rights handling still require owner/legal confirmation. Until then retain `SITE_INDEXABLE=false`. Confirm actual apex/www redirects before setting `CANONICAL_BASE_URL`; the default is the domain supplied by the owner, not an observed redirect. Never enable `ALLOW_PREVIEW_EMBEDDING=true` on production just to accommodate an unrelated iframe.
+
+No production publication, merge, push or deployment is performed by the local audit workflow. Validate staging with real provider and mailbox access before any separate authorized promotion. See `PRODUCTION-AUDIT-2026-10-12.md` for acceptance status.

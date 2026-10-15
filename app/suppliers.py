@@ -66,6 +66,9 @@ class DB:
 
 @contextmanager
 def database():
+    from app import settings
+    try:settings.database_guard()
+    except ValueError:raise WorkflowError('Database/deployment isolation configuration is invalid.',503) from None
     url = os.environ.get('DATABASE_URL')
     if url:
         import psycopg
@@ -77,6 +80,7 @@ def database():
         raw = sqlite3.connect(DATABASE, timeout=15)
         os.chmod(DATABASE, 0o600)
         raw.row_factory = sqlite3.Row
+        raw.create_function('LOWER',1,lambda value: value.lower() if isinstance(value,str) else value,deterministic=True)
         raw.execute('PRAGMA foreign_keys=ON')
         raw.execute('BEGIN IMMEDIATE')
     try:
@@ -92,16 +96,18 @@ def database():
 def initialize():
     from app.marketplace import SCHEMA as MARKET_SCHEMA
     from app.public_ai import SCHEMA as PUBLIC_AI_SCHEMA
+    from app.intake import SCHEMA as INTAKE_SCHEMA, TABLES
+    from app.controls import SCHEMA as CONTROL_SCHEMA, TABLES as CONTROL_TABLES
     with database() as db:
         if db.postgres:
             db.execute('CREATE SCHEMA IF NOT EXISTS stratevo_private')
             db.execute('REVOKE ALL ON SCHEMA stratevo_private FROM PUBLIC')
-        for statement in (SCHEMA + MARKET_SCHEMA + PUBLIC_AI_SCHEMA).split(';'):
+        for statement in (SCHEMA + MARKET_SCHEMA + PUBLIC_AI_SCHEMA + INTAKE_SCHEMA + CONTROL_SCHEMA).split(';'):
             if statement.strip():
                 db.execute(statement)
         if db.postgres:
             # Fresh initialization must be private too, not only migrated installs.
-            for table in ('applications','tokens','sessions','audit','outbox','rate_limits','market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots'):
+            for table in ('applications','tokens','sessions','audit','outbox','rate_limits','market_accounts','market_products','market_tokens','public_ai_budget','public_ai_slots') + TABLES + CONTROL_TABLES:
                 db.execute('ALTER TABLE ' + table + ' ENABLE ROW LEVEL SECURITY')
                 db.execute('REVOKE ALL ON ' + table + ' FROM PUBLIC')
             for role in ('anon','authenticated'):
@@ -137,6 +143,11 @@ def rate_limit(bucket, limit, seconds):
     # Durable global buckets are conservative. Add trusted edge per-client limits in production.
     denied = False
     with database() as db:
+        from app.controls import capacity
+        capacity(db,'lock')
+        if not db.execute('SELECT bucket FROM rate_limits WHERE bucket=?',(bucket,)).fetchone():
+            db.execute('DELETE FROM rate_limits WHERE started_at<?',(now()-172800,))
+            if db.execute('SELECT COUNT(*) AS n FROM rate_limits').fetchone()['n']>=10000:raise WorkflowError('Usage-control capacity reached. Try again later.',429)
         db.execute('INSERT INTO rate_limits(bucket, started_at, hits) VALUES (?,?,0) ON CONFLICT(bucket) DO NOTHING', (bucket, now()))
         db.execute('UPDATE rate_limits SET started_at=?, hits=0 WHERE bucket=? AND started_at<=?', (now(), bucket, now()-seconds))
         row = db.execute('UPDATE rate_limits SET hits=hits+1 WHERE bucket=? RETURNING hits', (bucket,)).fetchone()
@@ -145,12 +156,9 @@ def rate_limit(bucket, limit, seconds):
 
 
 def public_base():
-    value = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
-    parsed = urlparse(value)
-    local = parsed.hostname in ('localhost', '127.0.0.1')
-    if not parsed.hostname or (parsed.scheme != 'https' and not (local and parsed.scheme == 'http')) or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path:
-        raise WorkflowError('Email access is not configured yet. Please contact the platform owner.', 503)
-    return value
+    from app.settings import public_origin
+    try:return public_origin()
+    except ValueError:raise WorkflowError('A verified public email-link origin is not configured.',503) from None
 
 
 def field(data, key, minimum=1, maximum=200):
@@ -165,12 +173,15 @@ def field(data, key, minimum=1, maximum=200):
 
 def email_address(data):
     email = field(data, 'email', maximum=254).casefold()
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
+    local, _, domain = email.partition('@')
+    if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", email) or len(local)>64 or local.startswith('.') or local.endswith('.') or '..' in local:
         raise WorkflowError('Enter a valid email address.')
     return email
 
 
 def queue(db, email, subject, body):
+    from app.controls import capacity
+    capacity(db,'mail')
     message_id=str(uuid.uuid4())
     db.execute('INSERT INTO outbox(id,recipient,subject,body,created_at) VALUES (?,?,?,?,?)', (message_id, email, subject, body, now()))
     return message_id
@@ -252,6 +263,9 @@ def consume(data):
 
 def admin_login(data):
     rate_limit('admin-login', 10, 900)
+    from app.admin_auth import login
+    named=login(data)
+    if named is not None:return named
     password = field(data, 'password', maximum=300)
     if not verify_password(password): raise WorkflowError('Sign-in failed.', 401)
     with database() as db: token = session(db, 'admin')
@@ -266,7 +280,14 @@ def authenticate(raw, role=None):
         if result['role']=='supplier':
             app = db.execute('SELECT status FROM applications WHERE id=?', (result['application_id'],)).fetchone()
             if not app or app['status']!='approved': raise WorkflowError('Supplier access is not approved.', 403)
-        return dict(result)
+        identity=dict(result)
+        if result['role']=='admin':
+            from app.admin_auth import validate
+            identity['actor']=validate(db,raw)
+        if result['role']=='publisher':
+            from app.controls import suspended
+            if suspended(db,result['application_id']):raise WorkflowError('This supplier account is suspended.',403)
+        return identity
 
 
 def logout(raw):
@@ -320,8 +341,14 @@ def profile(identity):
 
 def send_email_queue(limit=10, message_id=None):
     """At-least-once delivery: SMTP cannot offer atomic exactly-once delivery."""
+    from app.intake import queue_pending
+    from app import mail_policy
+    if os.environ.get('MAIL_DELIVERY_ENABLED','false')!='true':raise WorkflowError('Email delivery is disabled; saved jobs remain queued.',503)
+    limit=max(1,min(int(limit),10))
+    with database() as db: queue_pending(db)
     host, sender = os.environ.get('SMTP_HOST'), os.environ.get('MAIL_FROM')
     if not host or not sender: raise WorkflowError('SMTP is not configured. Emails remain queued.',503)
+    sender=email_address({'email':sender})
     sent, failed = 0, 0
     for _ in range(limit):
         with database() as db:
@@ -333,19 +360,32 @@ def send_email_queue(limit=10, message_id=None):
             if not row: break
             claimed = db.execute('UPDATE outbox SET claimed_until=?,attempts=attempts+1 WHERE id=? AND sent_at IS NULL AND claimed_until<? RETURNING id,recipient,subject,body', (now()+120,row['id'],now())).fetchone()
             if not claimed: continue
+            if mail_policy.obsolete(db,claimed):continue
+            mail_policy.state(db,claimed['id'],'sending')
+        try:rate_limit('smtp-delivery',60,3600)
+        except WorkflowError:
+            with database() as db:
+                db.execute('UPDATE outbox SET attempts=attempts-1,claimed_until=? WHERE id=?',(now()+60,claimed['id']))
+                mail_policy.state(db,claimed['id'],'rate_limited')
+            break
         try:
             message = EmailMessage()
             message['From'], message['To'], message['Subject'] = sender, claimed['recipient'], claimed['subject']
             message['Message-ID'] = '<'+claimed['id']+'@'+sender.split('@')[-1]+'>'
             message.set_content(claimed['body'])
-            with smtplib.SMTP(host, int(os.environ.get('SMTP_PORT','587')), timeout=20) as smtp:
+            with smtplib.SMTP(host, int(os.environ.get('SMTP_PORT','587')), timeout=8) as smtp:
                 smtp.starttls(context=ssl.create_default_context())
                 if os.environ.get('SMTP_USER'): smtp.login(os.environ['SMTP_USER'], os.environ['SMTP_PASSWORD'])
                 smtp.send_message(message)
-            with database() as db: db.execute("UPDATE outbox SET sent_at=?,body='' WHERE id=?", (now(),claimed['id']))
+            with database() as db:
+                db.execute("UPDATE outbox SET sent_at=?,body='' WHERE id=?", (now(),claimed['id']))
+                mail_policy.state(db,claimed['id'],'smtp_accepted')
             sent += 1
         except Exception:
             failed += 1  # Never expose provider errors or email contents in logs.
+            with database() as db:
+                row=db.execute('SELECT attempts FROM outbox WHERE id=?',(claimed['id'],)).fetchone()
+                mail_policy.state(db,claimed['id'],'exhausted' if row and row['attempts']>=5 else 'retry_pending')
     return {'sent':sent,'failed':failed}
 
 

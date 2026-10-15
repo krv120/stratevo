@@ -1,0 +1,30 @@
+[
+  {
+    "route": "/",
+    "violations": []
+  },
+  {
+    "route": "/assessment",
+    "violations": []
+  },
+  {
+    "route": "/methodology",
+    "violations": []
+  },
+  {
+    "route": "/cookies",
+    "violations": []
+  },
+  {
+    "route": "/inquiry",
+    "violations": []
+  },
+  {
+    "route": "/supplier",
+    "violations": []
+  },
+  {
+    "route": "/ai",
+    "violations": []
+  }
+]

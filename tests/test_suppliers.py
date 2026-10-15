@@ -116,7 +116,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_mail_success_clears_body(self):
         s.apply(DATA)
-        with patch.dict(os.environ,{'SMTP_HOST':'mail.example.invalid','MAIL_FROM':'sender@example.invalid'}), patch('app.suppliers.smtplib.SMTP') as smtp:
+        with patch.dict(os.environ,{'MAIL_DELIVERY_ENABLED':'true','SMTP_HOST':'mail.example.invalid','MAIL_FROM':'sender@example.invalid'}), patch('app.suppliers.smtplib.SMTP') as smtp:
             result=s.send_email_queue()
             self.assertEqual(result,{'sent':1,'failed':0})
             smtp.return_value.__enter__.return_value.starttls.assert_called_once()
@@ -124,7 +124,7 @@ class WorkflowTests(unittest.TestCase):
         with s.database() as db:self.assertEqual(db.execute('SELECT body FROM outbox').fetchone()['body'],'')
     def test_mail_failure_preserves_queue(self):
         s.apply(DATA)
-        with patch.dict(os.environ,{'SMTP_HOST':'mail.example.invalid','MAIL_FROM':'sender@example.invalid'}), patch('app.suppliers.smtplib.SMTP',side_effect=OSError('private provider detail')):
+        with patch.dict(os.environ,{'MAIL_DELIVERY_ENABLED':'true','SMTP_HOST':'mail.example.invalid','MAIL_FROM':'sender@example.invalid'}), patch('app.suppliers.smtplib.SMTP',side_effect=OSError('private provider detail')):
             self.assertEqual(s.send_email_queue(),{'sent':0,'failed':1})
         self.assertEqual(s.applications()['queued_emails'],1)
     def test_http_session_cookie_origin_and_manager_gate(self):

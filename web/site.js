@@ -2,11 +2,16 @@
 const byId = id => document.getElementById(id);
 const make = (tag, value, cls) => {const el = document.createElement(tag); if (value !== undefined) el.textContent = value; if(cls) el.className = cls; return el;};
 async function request(path, body) {
-  const response = await fetch(path, {method:body === undefined ? 'GET':'POST', credentials:'same-origin', headers: {'Content-Type':'application/json'}, ...(body === undefined ? {} : {body:JSON.stringify(body)})});
-  const result = await response.json();
-  if(!response.ok) {const error = new Error(result.error || 'Request failed. Please try again.'); error.status=response.status; throw error;}
-  return result;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+  try {
+    const response = await fetch(path, {signal:controller.signal,method:body === undefined ? 'GET':'POST', credentials:'same-origin', headers: {'Content-Type':'application/json'}, ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+    if(!(response.headers.get('content-type')||'').includes('application/json'))throw new Error('Unexpected server response. Please retry later.');
+    const result = await response.json();
+    if(!response.ok) {const error = new Error(result.error || 'Request failed. Please try again.'); error.status=response.status; throw error;}
+    return result;
+  }catch(error){if(error.name==='AbortError')throw new Error('The request timed out. Check the current record before retrying a change.');throw error;}finally{clearTimeout(timer);}
 }
+
 function formTask(id, output, action) {
   const form = byId(id); if(!form) return;
   form.addEventListener('submit', async event => {event.preventDefault(); const button=form.querySelector('button[type="submit"]'); button.disabled=true; byId(output).textContent='Working…'; try {await action(Object.fromEntries(new FormData(form)), form);} catch(error) {byId(output).textContent=error.message;} finally {button.disabled=false;}});
@@ -55,7 +60,7 @@ async function loadApplications(){
   byId('admin-summary').textContent=`${result.total} total applications · Showing latest ${applications.length} · ${result.queued_emails} unsent emails · ${result.smtp_configured?'SMTP configured — delivery must be checked':'Email delivery NOT configured'}`;
   renderApplications();
   const connection = await request('/api/admin/connections');
-  byId('connection-status').textContent=`AI: ${connection.ai_configured?'configured':'missing configuration'} · Online search: ${connection.search_configured?'configured':'disabled or missing key'} · Email: ${connection.email_configured?'configured':'not configured'}. ${connection.notice}`;
+  byId('connection-status').textContent=`AI: ${connection.ai_configured?'configured':'missing configuration'} · Online search: ${connection.search_configured?'configured':'disabled or missing key'} · Email: ${connection.email_configured?'configured':'not configured'} · Owner destination: ${connection.owner_notification_configured?'configured':'not configured'}. ${connection.notice}`;
 }
 formTask('admin-login-form','admin-login-status',async(data,form)=>{await request('/api/admin/login',data);form.reset();await loadApplications();});
 if(byId('admin-workspace')){

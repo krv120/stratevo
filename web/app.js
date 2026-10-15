@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let history = [], busy = false;
+let history = [], busy = false, lastFailed = '', notes = [];
 async function api(path, body) {
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(),60000);
@@ -23,8 +23,8 @@ function cards(rows) {
   if (!rows.length) $('results').append(text('p', 'No matching research found. Try fewer English keywords. This does not mean no suppliers exist.', 'empty'));
   rows.forEach(row => { const card = document.createElement('article'); card.className = 'result'; card.append(text('span', row.reference, 'ref'), text('h3', row.description)); const p = row.advertised_price, m = row.advertised_moq; card.append(text('p', `Advertised: ${p?.display || 'unknown'} · ${p?.currency_code || 'currency unconfirmed'}`), text('p', `MOQ: ${m?.quantity ?? 'unknown'} ${m?.unit || ''} · Variant unconfirmed`), text('small', 'Unverified listing • not a quotation')); if (row.moq_match) { card.append(text('p', `Category: ${row.matrix?.category || 'Unclassified'} / ${row.reference}`), text('p', `Location: ${row.matrix?.location || 'Unknown'} · MOQ Match: ${row.moq_match}`), text('p', `Lead time: ${row.matrix?.lead_time_days ?? 'Unknown'} · Verified certifications: ${row.matrix?.certifications_verified?.join(', ') || 'None established'} · Target price: ${row.matrix?.target_price ?? 'Not specified'}`), text('p', `Why they fit: ${row.why_fit}`)); } $('results').append(card); });
 }
-$('chat').onsubmit = async e => {e.preventDefault(); if (busy) return; const value = $('question').value.trim(); if (!value) return; busy = true; $('chat-progress').textContent='Waiting for the AI service…'; $('messages').setAttribute('aria-busy','true'); $('send').disabled = $('clear').disabled = true; message('user', value); $('question').value = ''; const context = history.slice(-16); while(context.length && (context.reduce((n,m)=>n+m.content.length,0)+value.length>48000)) context.splice(0,2); const pending = [...context, {role:'user', content:value}]; try {const result = await api('/api/chat', {messages:pending}); message('assistant', result.message); if (result.mode === 'model') history = [...pending, {role:'assistant', content:result.message}]; if (result.qualification || result.references.length) cards(result.references);} catch (err) {message('assistant', err.message); $('question').value = value;} finally {busy = false; $('chat-progress').textContent=''; $('messages').setAttribute('aria-busy','false'); $('send').disabled = $('clear').disabled = false; $('question').focus();}};
-$('clear').onclick = () => {history = []; $('results').replaceChildren(text('p','Previous research results cleared.','empty')); $('match-status').textContent=''; $('messages').replaceChildren(text('p', 'New conversation. Previous messages have been cleared from this page.', 'empty'));};
+$('chat').onsubmit = async e => {e.preventDefault(); if (busy) return; const value = $('question').value.trim(); if (!value) return; busy = true; $('chat-progress').textContent='Waiting for the AI service…'; $('messages').setAttribute('aria-busy','true'); $('send').disabled = $('clear').disabled = true; if(value!==lastFailed){message('user', value);notes.push(value);} $('retry-chat').hidden=true; $('question').value = ''; const context = history.slice(-16); while(context.length && (context.reduce((n,m)=>n+m.content.length,0)+value.length>48000)) context.splice(0,2); const pending = [...context, {role:'user', content:value}]; try {const result = await api('/api/chat', {messages:pending}); lastFailed=''; message('assistant', result.message); if (result.mode === 'model') history = [...pending, {role:'assistant', content:result.message}]; if (result.qualification || result.references?.length) cards(result.references);} catch (err) {message('assistant', err.message); lastFailed=value; $('retry-chat').hidden=false; $('question').value = value;} finally {busy = false; $('chat-progress').textContent=''; $('messages').setAttribute('aria-busy','false'); $('send').disabled = $('clear').disabled = false; $('question').focus();}};
+$('clear').onclick = () => {history = []; notes=[]; lastFailed=''; $('question').value=''; $('retry-chat').hidden=true; $('results').replaceChildren(text('p','Previous research results cleared.','empty')); $('match-status').textContent=''; $('messages').replaceChildren(text('p', 'New conversation. Previous messages have been cleared from this page.', 'empty'));};
 
 // Public readiness only; never expose credentials or private research counts.
 api('/api/agent/status').then(status => { $('status').textContent = status.provider_configured ? 'AI configuration available. Send a question to start.' : 'AI conversation is not connected here yet. Marketplace browsing and product matching are available.'; }).catch(() => {$('status').textContent='Could not check AI availability. You can retry by sending a question.';});
@@ -49,3 +49,12 @@ function openBrief(){if(location.hash==='#match-form'){$('match-form').closest('
 openBrief();window.addEventListener('hashchange',openBrief);
 
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!busy)$('chat').requestSubmit();}});
+
+$('retry-chat').onclick=()=>{if(!busy&&lastFailed){$('question').value=lastFailed;$('chat').requestSubmit();}};
+$('ai-inquiry').onclick=()=>{
+  try{sessionStorage.setItem('stratevo-inquiry-draft',JSON.stringify({created_at:Date.now(),notes:notes.join('\n\n').slice(0,6000)}));}catch{}
+};
+
+function categoryPrompt(category){const labels={industrial:'industrial components',packaging:'packaging',consumer:'consumer products',food:'food and ingredients'};if(labels[category]&&!$('question').value){$('question').value='Help me define my '+labels[category]+' sourcing requirement.';}}
+categoryPrompt(new URLSearchParams(location.search).get('category'));
+window.addEventListener('message',event=>{if(event.origin===location.origin&&event.source===window.parent&&event.data?.type==='stratevo-category')categoryPrompt(event.data.category);});

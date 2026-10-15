@@ -10,7 +10,7 @@ from app import agent
 class ReferenceUpdateTests(unittest.TestCase):
     def test_home_uses_reference_content_and_real_routes(self):
         home=Path('web/home.html').read_text()
-        for phrase in ['find a stronger route','from brief to supply.','NON-CONTRACTING PREVIEW','THE BRIEF','Ask STRATEVO','/reference.css','/visual.js']:
+        for phrase in ['china sourcing.','a clearer starting point.','NON-CONTRACTING PREVIEW','THE BRIEF','Ask STRATEVO','/reference.css','/visual.js']:
             self.assertIn(phrase,home)
         self.assertNotIn('Find the right fit.',home)
         self.assertIn('href="/marketplace"',home)

@@ -22,7 +22,7 @@ def product(**changes):
 
 
 def application(email='account@example.invalid',**changes):
-    return {'company':'Private Example Works','contact':'Hidden Contact','country':'Greece','email':email,'whatsapp':'+306912345678','wechat':'','license_number':'PRIVATE-LICENSE-17','license_pdf':base64.b64encode(b'%PDF-1.4\nsynthetic test document\n%%EOF').decode(),'consent':True,'product':product(),**changes}
+    return {'company':'Private Example Works','contact':'Hidden Contact','country':'Greece','city':'Rethymno','email':email,'whatsapp':'+306912345678','wechat':'','license_number':'PRIVATE-LICENSE-17','license_pdf':'','consent':True,'product':product(),**changes}
 
 
 def token_for(email):
@@ -226,7 +226,7 @@ class MarketplaceTests(unittest.TestCase):
 
     def test_specific_outbox_delivery_does_not_send_other_accounts(self):
         _,first=m.register(application());_,second=m.register(application('second@example.invalid'))
-        with patch.dict(os.environ,{'SMTP_HOST':'smtp.invalid','MAIL_FROM':'mail@example.invalid'}),patch('app.suppliers.smtplib.SMTP') as smtp:
+        with patch.dict(os.environ,{'MAIL_DELIVERY_ENABLED':'true','SMTP_HOST':'smtp.invalid','MAIL_FROM':'mail@example.invalid'}),patch('app.suppliers.smtplib.SMTP') as smtp:
             result=s.send_email_queue(limit=1,message_id=second)
             self.assertEqual(result['sent'],1);transport=smtp.return_value.__enter__.return_value;transport.starttls.assert_called_once();message=transport.send_message.call_args.args[0];self.assertEqual(message['To'],'second@example.invalid')
         with s.database() as db:

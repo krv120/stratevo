@@ -1,10 +1,14 @@
 # STRATEVO — reviewed source package
 
+> **Current release: 2026.10.13-rc1.** Start with `FINAL-RELEASE-2026-10-13.md`, `LIVE-SOURCE-COMPARISON-2026-10-13.md`, `SEARCH-AND-MEASUREMENT-HANDOFF.md` and `RELEASE-TESTING.md`. Older reports below are historical, not current production evidence. No production deployment is authorized by this release.
+
+> **Latest hardening:** read `ENGINEERING-AUDIT-2026-10-12.md` and `OPERATIONS-HANDOFF.md` first. They supersede older upload, login, worker, retention and deployment instructions below. Migration 005 and explicit environment/service approvals are required; this is not launch approval.
+
 A Python/vanilla-JavaScript sourcing website and email-confirmed product marketplace. This is a new implementation, **not recovered production source**. Repository edits do not change `stratevo.online` until you deploy them.
 
-## Latest update: public AI and self-service Marketplace
+## Latest update: production-readiness audit, 12 October 2026
 
-Read [PUBLIC-MARKETPLACE-UPDATE.md](PUBLIC-MARKETPLACE-UPDATE.md) for this revision. Public AI needs no customer credentials; new products publish after email confirmation without manager approval. The October 9 screenshot-derived black/blue design is preserved. Older audit/reference reports remain historical.
+Read [PRODUCTION-AUDIT-2026-10-12.md](PRODUCTION-AUDIT-2026-10-12.md) first. This revision adds retry-safe customer inquiries, a private customer inbox, owner notifications/recovery, optional supplier documents/contact fields, privacy/scope notices and SEO controls. Live hosting/provider/mail tests remain blocked; it is not production-certified. Public AI needs no customer credentials; new products publish after email confirmation without manager approval. The October 9 screenshot-derived black/blue design is preserved. Older audit/reference reports remain historical.
 
 ## Start here
 
@@ -17,7 +21,7 @@ Read [PUBLIC-MARKETPLACE-UPDATE.md](PUBLIC-MARKETPLACE-UPDATE.md) for this revis
 ## Features
 
 - Responsive black/blue homepage, sourcing pillars/stages, specified `hello@stratevo.co` contact and Minup booking.
-- Private application with business details, PDF license, email + WhatsApp **or** WeChat.
+- Private application with business details, PDF license, email and country/city; messaging details and PDF license are optional.
 - Supplier popup → email verification → automatic product publication and private `/supplier/account`. No manager approval. Suppliers can add and withdraw their products.
 - Separate `/marketplace` with product photos/details, advertised prices/MOQs, search and categories. Company identity/contacts/documents stay private; inquiries go through STRATEVO.
 - Manager-only private registry, license downloads, post-publication removal and connection tests. Legacy applications remain separately labeled.
@@ -45,7 +49,7 @@ The development server binds `0.0.0.0:8000` intentionally for proxied previews. 
 
 `.env.example` documents variable names; `.env` is **not automatically loaded**. An ignored `private/local-config.json` environment object can be loaded using `python3 scripts/run_preview.py private/local-config.json`. Never put keys in frontend code or chat.
 
-Routes: `/`, `/supplier`, `/supplier/account`, `/marketplace`, `/admin`, `/access`, legacy `/portal`, `/ai`. Chat and qualified matching are public with durable rate/request limits. Raw research, live discovery and operational controls stay private.
+Routes: `/`, `/inquiry`, `/privacy`, `/terms`, `/supplier`, `/supplier/account`, `/marketplace`, `/admin`, `/access`, legacy `/portal`, `/ai`. Chat and qualified matching are public with durable rate/request limits. Raw research, live discovery and operational controls stay private.
 
 ## Data and privacy
 
@@ -55,7 +59,7 @@ Raw research provenance is private. Buyer projections strip recognized source UR
 
 ## Validation
 
-Current revision: **101 Python unit/HTTP tests passed**, real ephemeral PostgreSQL migrations/workflows/concurrency/RLS passed, and Chromium public-chat/supplier-popup/auto-publication/account/moderation/responsive checks passed. See `PUBLIC-MARKETPLACE-UPDATE.md` for exact scope and limitations. External AI/search responses were mocked in automated tests; real credentials and SMTP inbox delivery were not tested here.
+Current revision: **115 Python unit/HTTP tests passed**, real ephemeral PostgreSQL migrations/workflows/concurrency/RLS passed, and Chromium public-chat/supplier-popup/auto-publication/account/moderation/responsive checks passed. See `PRODUCTION-AUDIT-2026-10-12.md` for exact scope and limitations. External AI/search responses were mocked in automated tests; real credentials and SMTP inbox delivery were not tested here.
 
 ```sh
 python3 -m unittest discover -s tests -v
@@ -78,3 +82,13 @@ npm install --prefix private/browser --no-save --package-lock=false playwright @
 Run `python3 scripts/package_release.py` to create a source-only ZIP in `private/`, with a SHA-256 manifest and tests/guides. The script uses explicit allowed directories and excludes private data, caches, symlinks and credentials. Inspect the generated package before distributing.
 
 No production deployment, comprehensive penetration test, public legal compliance review, real Gemini quality benchmark or guarantee of zero defects is claimed.
+
+## Inquiry/email/SEO setup
+
+Apply additive migration `004_private_inquiries.sql` after 001–003. Set `NOTIFICATION_EMAIL` to your verified business inbox, separately from the SMTP-authorized `MAIL_FROM`. A transaction saves each record and its notification intent; missing notification settings are recoverable without losing the record. Run the existing `python3 -m app.suppliers send-mail` worker regularly with the same database and environment. `/admin` now has a customer inbox, supplier review status, notification-state summary and an exhausted-owner-alert retry control. SMTP acceptance is not inbox receipt.
+
+`CANONICAL_BASE_URL` defaults to the user-provided `https://stratevo.online`; confirm the actual apex/www redirect in hosting. Keep `SITE_INDEXABLE=false` on previews and until launch prerequisites pass. Use `ALLOW_PREVIEW_EMBEDDING=true` only for embedded Arena previews; production defaults to same-origin frame protection. No analytics or marketing subscription has been added.
+
+Additional browser audit: install `@axe-core/playwright` alongside the existing private browser tools and run `node tests/audit_browser.cjs` against the isolated test server with `NOTIFICATION_EMAIL=owner@example.invalid` and blank SMTP/provider credentials. Tests deliberately inject provider responses/network failures; real API/inbox tests still require staging.
+
+Repeated E2E runs consume real test-server quotas. Start with a fresh isolated test database (archive any earlier fixture first) rather than disabling or increasing application rate limits. Never reset the public preview or production database for tests.
