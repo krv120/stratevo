@@ -1,7 +1,7 @@
 {
   "release_version": "2026.10.15-ai-ops-rc1",
   "package_date": "2026-10-15",
-  "source_commit": "845249497f2c113a4c6d5784876f3a48d02b7066",
+  "source_commit": "5b2f4308b2e2a47ee8280f6c954417c32ec13b31",
   "format_version": 1,
   "note": "Source and synthetic validation only; hashes exclude this manifest itself.",
   "files": {
@@ -75,7 +75,7 @@
     "tests/test_audit_regressions.py": "8d6a0350f9d2d06d8f1db0448bd54244cde0d58f9f0f393b6fbc1be04ec5c7cb",
     "tests/test_connections.py": "822e2546bcfecbb7979533a604a62fb766040a96fda09956c743e84b8c40e544",
     "tests/test_discovery.py": "f8e0009bcee9545267bcee712d101ee2bd8ebddbfa3021375544881ea62c33d1",
-    "tests/test_engine_upgrade.py": "493b74513f6a3f529681bc82771b780a92188dec3b51cdbd1f60a4add6a65dad",
+    "tests/test_engine_upgrade.py": "278b10200031572c9d2a2440adf3b9d20146536afae98ddd57f7e278f60ae207",
     "tests/test_hardening.py": "00ec57e3056edb81708cb5a55f72f68e3315250f8cbc1d178a44c21595c64e94",
     "tests/test_intake.py": "116b6742a6486dfa2bc053cf1b8f29bbaabcdfa4acd24fff1b1f6415c092855a",
     "tests/test_marketplace.py": "70beb1974ed20f3e18c00324b39103a0355ce73be8585d2e0919eef66814f33c",
