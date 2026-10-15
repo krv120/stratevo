@@ -47,6 +47,7 @@ test_invalid_fields_return_location_and_no_record (test_engine_upgrade.EngineTes
 test_no_citations_never_fabricates_a_lead (test_engine_upgrade.EngineTests.test_no_citations_never_fabricates_a_lead) ... ok
 test_profile_edit_verification_feature_and_guarded_delete (test_engine_upgrade.EngineTests.test_profile_edit_verification_feature_and_guarded_delete) ... ok
 test_provider_failure_does_not_undo_inquiry (test_engine_upgrade.EngineTests.test_provider_failure_does_not_undo_inquiry) ... ok
+test_public_setup_does_not_unlock_private_registry (test_engine_upgrade.EngineTests.test_public_setup_does_not_unlock_private_registry) ... ok
 test_recipient_update_requires_admin_and_read_counter (test_engine_upgrade.EngineTests.test_recipient_update_requires_admin_and_read_counter) ... ok
 test_supplier_normalization_immediate_inbox_and_private_registry (test_engine_upgrade.EngineTests.test_supplier_normalization_immediate_inbox_and_private_registry) ... ok
 test_supplier_updates_only_own_profile_and_logs_notice (test_engine_upgrade.EngineTests.test_supplier_updates_only_own_profile_and_logs_notice) ... ok
@@ -54,6 +55,7 @@ test_unknown_browser_cache_is_not_blindly_imported (test_engine_upgrade.EngineTe
 test_resend_and_sendgrid_real_request_contracts (test_engine_upgrade.MailTransportTests.test_resend_and_sendgrid_real_request_contracts) ... ok
 test_smtp_ssl_and_starttls (test_engine_upgrade.MailTransportTests.test_smtp_ssl_and_starttls) ... ok
 test_webhook_never_receives_supplier_login_tokens (test_engine_upgrade.MailTransportTests.test_webhook_never_receives_supplier_login_tokens) ... ok
+test_admin_setup_missing_invalid_and_ready (test_engine_upgrade.ProviderTests.test_admin_setup_missing_invalid_and_ready) ... ok
 test_explicit_provider_and_legacy_openai_default (test_engine_upgrade.ProviderTests.test_explicit_provider_and_legacy_openai_default) ... ok
 test_fenced_json_and_native_adapters (test_engine_upgrade.ProviderTests.test_fenced_json_and_native_adapters) ... ok
 test_grounding_is_not_assumed_from_chat_key (test_engine_upgrade.ProviderTests.test_grounding_is_not_assumed_from_chat_key) ... ok
@@ -73,11 +75,11 @@ test_full_mail_queue_does_not_erase_inquiry (test_hardening.HardeningTests.test_
 test_health_failure_and_json_methods (test_hardening.HardeningTests.test_health_failure_and_json_methods) ... ok
 test_image_processing_lease_expires_and_releases (test_hardening.HardeningTests.test_image_processing_lease_expires_and_releases) ... ok
 test_mail_worker_requires_secret (test_hardening.HardeningTests.test_mail_worker_requires_secret) ... ok
-test_named_admin_totp_replay_and_rotation (test_hardening.HardeningTests.test_named_admin_totp_replay_and_rotation) ... ok
-test_public_model_cannot_invent_qualification_for_lookup (test_hardening.HardeningTests.test_public_model_cannot_invent_qualification_for_lookup) ... /usr/lib/python3.11/unittest/mock.py:2124: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
-  setattr(_type, entry, MagicProxy(entry, self))
+test_named_admin_totp_replay_and_rotation (test_hardening.HardeningTests.test_named_admin_totp_replay_and_rotation) ... /home/user/stratevo/app/connections.py:102: ResourceWarning: unclosed <socket.socket [closed] fd=5, family=2, type=1, proto=6>
+  if statement.strip():raw.execute(statement)
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
+test_public_model_cannot_invent_qualification_for_lookup (test_hardening.HardeningTests.test_public_model_cannot_invent_qualification_for_lookup) ... ok
 test_report_and_review (test_hardening.HardeningTests.test_report_and_review) ... ok
 test_retention_opt_in (test_hardening.HardeningTests.test_retention_opt_in) ... ok
 test_sql_pagination_beyond_old_cutoff (test_hardening.HardeningTests.test_sql_pagination_beyond_old_cutoff) ... ok
@@ -186,6 +188,6 @@ test_review_race_conflict (test_suppliers.WorkflowTests.test_review_race_conflic
 test_unknown_access_non_enumerating (test_suppliers.WorkflowTests.test_unknown_access_non_enumerating) ... ok
 
 ----------------------------------------------------------------------
-Ran 183 tests in 14.485s
+Ran 185 tests in 14.338s
 
 OK

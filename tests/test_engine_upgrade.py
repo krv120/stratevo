@@ -10,6 +10,24 @@ from test_marketplace import application
 from test_intake import inquiry
 
 class ProviderTests(unittest.TestCase):
+    def test_admin_setup_missing_invalid_and_ready(self):
+        import base64
+        import secrets
+        password = secrets.token_urlsafe(32)
+        seed = base64.b32encode(secrets.token_bytes(20)).decode()
+        cases = [({}, 'missing'), ({'ADMIN_PASSWORD': 'short'}, 'invalid'),
+                 ({'ADMIN_PASSWORD': password}, 'invalid'),
+                 ({'ADMIN_PASSWORD': password, 'ADMIN_TOTP_SECRET': 'invalid seed'}, 'invalid'),
+                 ({'ADMIN_PASSWORD': password, 'ADMIN_TOTP_SECRET': seed}, 'ready'),
+                 ({'ADMIN_ACCOUNTS_JSON': '{}'}, 'invalid')]
+        for values, expected in cases:
+            with self.subTest(state=expected), patch.dict(os.environ, {'APP_ENV': 'production', **values}, clear=True):
+                result = admin_auth.setup_status()
+                self.assertEqual(result['state'], expected)
+                self.assertEqual(result['configured'], expected == 'ready')
+                self.assertNotIn(password, json.dumps(result))
+                self.assertNotIn(seed, json.dumps(result))
+
     def test_key_aliases_defaults_and_priority(self):
         for variable,provider in [('OPENAI_API_KEY','openai'),('STRATEVO_AI_API_KEY','openai'),('AI_API_KEY','openai'),('GEMINI_API_KEY','gemini'),('GOOGLE_API_KEY','gemini'),('ANTHROPIC_API_KEY','anthropic'),('PERPLEXITY_API_KEY','perplexity'),('OPENROUTER_API_KEY','openrouter'),('GROQ_API_KEY','groq')]:
             with self.subTest(variable=variable),patch.dict(os.environ,{variable:'synthetic-key'},clear=True):
@@ -64,6 +82,14 @@ class EngineTests(unittest.TestCase):
 
     def admin_cookie(self):
         with s.database() as db:return 'stratevo_session='+s.session(db,'admin','fixture-owner')
+
+    def test_public_setup_does_not_unlock_private_registry(self):
+        with patch.dict(os.environ, {'ADMIN_ACCOUNTS_JSON': '', 'ADMIN_TOKEN': '', 'STRATEVO_ADMIN_TOKEN': '', 'ADMIN_PASSWORD': '', 'ADMIN_TOTP_SECRET': ''}):
+            status, body, _ = self.http('/api/admin/setup')
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)['state'], 'missing')
+            self.assertEqual(self.http('/api/admin/suppliers')[0], 401)
+            self.assertEqual(self.http('/api/admin/notifications')[0], 401)
 
     def test_supplier_normalization_immediate_inbox_and_private_registry(self):
         data=application(website='example.com',phone='+30 (210) 123 4567',certifications='ISO 9001, RoHS',materials='aluminium;steel',employees='10–50',lead_time='2–4 weeks',founded_year=2001,capabilities='Precision machining and industrial bracket production.')

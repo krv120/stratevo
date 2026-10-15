@@ -1,57 +1,57 @@
 [
   {
     "route": "/",
-    "domContentLoadedMs": 35,
+    "domContentLoadedMs": 32,
     "transferBytes": 12163
   },
   {
     "route": "/ai",
-    "domContentLoadedMs": 59,
+    "domContentLoadedMs": 51,
     "transferBytes": 10878
   },
   {
     "route": "/supplier",
-    "domContentLoadedMs": 37,
+    "domContentLoadedMs": 55,
     "transferBytes": 16275
   },
   {
     "route": "/marketplace",
-    "domContentLoadedMs": 41,
+    "domContentLoadedMs": 56,
     "transferBytes": 8146
   },
   {
     "route": "/inquiry",
-    "domContentLoadedMs": 44,
+    "domContentLoadedMs": 47,
     "transferBytes": 10792
   },
   {
     "route": "/privacy",
-    "domContentLoadedMs": 32,
+    "domContentLoadedMs": 34,
     "transferBytes": 11218
   },
   {
     "route": "/terms",
-    "domContentLoadedMs": 28,
+    "domContentLoadedMs": 34,
     "transferBytes": 7725
   },
   {
     "route": "/admin",
-    "domContentLoadedMs": 50,
-    "transferBytes": 11385
+    "domContentLoadedMs": 52,
+    "transferBytes": 13057
   },
   {
     "route": "/access",
-    "domContentLoadedMs": 44,
+    "domContentLoadedMs": 31,
     "transferBytes": 5077
   },
   {
     "route": "/portal",
-    "domContentLoadedMs": 41,
+    "domContentLoadedMs": 44,
     "transferBytes": 5610
   },
   {
     "route": "/supplier/account",
-    "domContentLoadedMs": 43,
+    "domContentLoadedMs": 39,
     "transferBytes": 10166
   }
 ]

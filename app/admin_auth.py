@@ -40,6 +40,20 @@ def accounts():
     except Exception:raise s.WorkflowError('Administrator account configuration is invalid.',503) from None
 
 
+def setup_status():
+    """Public readiness only; never expose account identifiers, hashes or MFA seeds."""
+    message = ('Configure ADMIN_ACCOUNTS_JSON, or a strong ADMIN_PASSWORD plus '
+               'ADMIN_TOTP_SECRET in hosting secrets. Alias login name: owner. '
+               'Production requires MFA; there is no default or public access mode.')
+    try:
+        ready = bool(accounts())
+    except s.WorkflowError:
+        return {'configured': False, 'state': 'invalid',
+                'message': 'Administrator configuration is invalid. Check credential strength, JSON format and MFA setup. ' + message}
+    return {'configured': ready, 'state': 'ready' if ready else 'missing',
+            'message': 'Administrator login is configured. Use your private credentials and authenticator.' if ready else message}
+
+
 def code(secret,counter):
     raw=hmac.new(base64.b32decode(secret,casefold=True),struct.pack('>Q',counter),hashlib.sha1).digest()
     offset=raw[-1]&15

@@ -8,3 +8,5 @@
 .field-error{color:#ffb8b8;font-size:.9rem} [aria-invalid="true"]{outline:2px solid #d95a5a} [data-lead-results] a{overflow-wrap:anywhere}
 
 #operations-manager pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:25rem;overflow:auto}#operations-manager dialog{background:#10151f;color:#edf3ff;width:min(48rem,90vw);max-height:85vh;overflow:auto;border:1px solid #3968d9;padding:1.5rem}#operations-manager button{margin:.25rem}#operations-manager [data-lead-results]{overflow-wrap:anywhere}
+
+#admin-setup-guide{overflow-wrap:anywhere}#admin-setup-guide pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}#admin-setup-guide summary{cursor:pointer;min-height:44px}

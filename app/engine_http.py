@@ -11,8 +11,7 @@ POSTS={'/api/leads/find','/api/public-ai/leads','/api/assessment/leads','/api/ad
 def get(handler,route):
     try:
         if route=='/api/admin/setup':
-            ready=bool(os.environ.get('ADMIN_ACCOUNTS_JSON') or any(os.environ.get(n) for n in ('ADMIN_TOKEN','STRATEVO_ADMIN_TOKEN','ADMIN_PASSWORD')))
-            return handler.send(200,{'configured':ready,'message':'Configure ADMIN_ACCOUNTS_JSON, or a strong ADMIN_TOKEN / STRATEVO_ADMIN_TOKEN / ADMIN_PASSWORD plus ADMIN_TOTP_SECRET in hosting secrets. Alias login name: owner. Production requires MFA; there is no default or public access mode.'})
+            return handler.send(200,admin_auth.setup_status())
         s.authenticate(handler.session_token(),'admin')
         query=parse_qs(urlparse(handler.path).query);offset=query.get('offset',['0'])[0]
         if route=='/api/admin/suppliers':result=operations.supplier_rows(offset,query.get('q',[''])[0])

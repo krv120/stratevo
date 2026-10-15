@@ -1,3 +1,22 @@
+## Follow-up audit — 2026-10-16 / 2026.10.16-ai-ops-rc2
+
+The six-area implementation was re-audited after the owner encountered the missing-admin-configuration message. No default credentials were installed and no private hosting secrets were accessed.
+
+Changes in this follow-up:
+- Public admin setup diagnostics now validate actual account configuration instead of treating a nonempty variable as ready. Missing, invalid and ready states contain no hashes, password values, account lists or MFA seeds.
+- Added an expandable, mobile-safe owner setup guide at `/admin`, including credential precedence, local authenticator-seed generation and authorized redeployment instructions. No public account-creation/reset endpoint or fallback bypass was introduced.
+- Replaced contradictory legacy KEY-SETUP.md instructions with current native-provider, immediate-publication, MFA, durable-storage and real-mail guidance.
+- Corrected a stale chat message: named external research is available through the AI Lead Finder, not only through a booked review. Chat alone does not imply live search or silently spend on research from inferred requirements.
+- Added setup-state/privacy HTTP regressions and browser checks for the expanded setup guide. The new browser assertion caught mobile overflow from the setup command; wrapping was fixed without weakening the assertion.
+
+Fresh verification: **185 unit/HTTP tests passed**, **13 actual PostgreSQL PASS groups**, and **seven browser runs passed**. Both engine browser modes were rerun after the mobile wrapping fix. Syntax/compile and dependency-consistency checks passed. Runtime requirement audit found no known vulnerabilities. A broader tooling scan found outdated local pip/setuptools; both were upgraded in the isolated development environment and its repeat audit was clean. This does not update or certify the hosting build image. External provider and mail responses in automated tests are synthetic; no live provider result or inbox receipt was verified.
+
+Checklist scope remains: provider adapters + grounded discovery; normalized supplier publication/profile editing; real transports + persistent notices; private manager/CRM; additive schemas; synchronized templates and automated verification. Intentional safeguards: Marketplace membership is not falsely labeled verified; unsupported leads/RFQs are never invented to reach five results; no unknown localStorage import; missing admin configuration never exposes private records. Generic chat and unsubmitted assessment drafts are not automatically stored as qualified buyer inquiries: explicit lead-finder requests run research, and submitted inquiries appear in the customer inbox.
+
+The previous rc1 source was pushed to the approved session branch. This follow-up does not authorize a production deployment or migration. Live AI/mail credentials, authorized recipient/sender, MFA provisioning, persistent PostgreSQL and staging validation remain operator prerequisites. The source ZIP cannot supply those secrets.
+
+---
+
 # AI, supplier and operations upgrade — 15 October 2026
 
 Release candidate: **2026.10.15-ai-ops-rc1**. This report supersedes earlier release reports for AI, supplier fields, notification content and admin management. Implemented and tested in the repository, **not deployed or certified against production services**.
@@ -72,7 +91,7 @@ Vercel `/tmp` remains **ephemeral and instance-local**. It cannot provide shared
 
 ## Operator activation and rollback
 
-1. Confirm the Vercel project/production branch and a tested database backup/restore plan. Deploy to an isolated staging environment first. This agent has not pushed, merged, deployed, changed DNS or touched production data for this upgrade.
+1. Confirm the Vercel project/production branch and a tested database backup/restore plan. Deploy to an isolated staging environment first. The earlier candidate was published to the approved source branch; no production merge, deployment, DNS change or production-data operation was performed by this agent.
 2. Supply one intended AI key in hosting secrets. Remove stale higher-priority keys. Leave AI_BASE_URL / AI_MODEL blank unless deliberately overriding. Use the actual provider/account-supported model and enable its search tool/billing as needed; OpenRouter/Groq require a live search backend, not just chat access.
 3. Configure PostgreSQL using one supported URL variable; ensure the backend role can run private-schema migrations. Use strict mode. Confirm `/api/health` reports postgres. Never reuse the production DB in a preview.
 4. Provision named MFA admins or a strong owner alias (32+ characters for tokens, 16+ for password) plus a private base32 TOTP seed with at least 20 decoded bytes. Do not paste secrets into chat or commit them. No missing-secret bypass exists.

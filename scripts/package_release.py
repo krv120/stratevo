@@ -43,14 +43,14 @@ def build():
         if path.exists() and not path.is_symlink():files['validation/screenshots/'+name]=path.read_bytes()
     commit=os.environ.get('STRATEVO_RELEASE_COMMIT','not-recorded')
     if commit!='not-recorded' and not re.fullmatch('[a-f0-9]{40}',commit):raise ValueError('Invalid release commit identifier')
-    manifest = {'release_version':'2026.10.15-ai-ops-rc1','package_date':'2026-10-15','source_commit':commit,'format_version':1,'note':'Source and synthetic validation only; hashes exclude this manifest itself.',
+    manifest = {'release_version':'2026.10.16-ai-ops-rc2','package_date':'2026-10-16','source_commit':commit,'format_version':1,'note':'Source and synthetic validation only; hashes exclude this manifest itself.',
                 'files':{name:hashlib.sha256(data).hexdigest() for name,data in sorted(files.items())}}
     files['MANIFEST.json'] = json.dumps(manifest,indent=2).encode()
-    output=ROOT/'private'/'STRATEVO-2026.10.15-ai-ops-rc1.zip'
+    output=ROOT/'private'/'STRATEVO-2026.10.16-ai-ops-rc2.zip'
     output.parent.mkdir(mode=0o700,exist_ok=True)
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for name,data in sorted(files.items()):
-            entry=zipfile.ZipInfo(name,date_time=(2026,10,15,0,0,0))
+            entry=zipfile.ZipInfo(name,date_time=(2026,10,16,0,0,0))
             entry.compress_type=zipfile.ZIP_DEFLATED
             entry.external_attr=0o100644 << 16
             archive.writestr(entry,data)

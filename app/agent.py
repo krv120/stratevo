@@ -162,7 +162,7 @@ def reply(messages, request_fn=None, public=False):
         if function['name'] not in ('match_catalog', 'discover_online') or not isinstance(args, dict) or set(args) - set(TOOL['function']['parameters']['properties']):
             raise ValueError('Invalid catalog tool call')
         if public and function['name'] == 'discover_online':
-            return {'mode':'model','message':'Live web discovery is available through a STRATEVO sourcing review. I can match anonymized product information here. Book a call: '+BOOKING,'references':[]}
+            return {'mode':'model','message':'Use the AI Lead Finder on this page to search live sources for named companies and save supported results. Chat alone has not performed that search. For a managed sourcing review: '+BOOKING,'references':[]}
         if public:
             return {'mode':'model','message':'Before looking up sourcing options, please review and submit the qualification form: product, quantity and unit, destination, and required certifications (or explicitly none). I will not treat model-inferred specifications as confirmed requirements. No search, introduction or order has been made.','references':[]}
         result = discover(args) if function['name'] == 'discover_online' else match(args)
