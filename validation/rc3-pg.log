@@ -1,0 +1,10 @@
+/home/user/stratevo/.venv/lib/python3.11/site-packages/platformdirs/api.py:459: RuntimeDirWarning: XDG_RUNTIME_DIR is not set, falling back to /tmp/runtime-1001
+  return Path(self.user_runtime_dir)
+PASS concurrent cold bootstrap, seven migrations and repeated non-prepared queries
+PASS exact-retry registration is one record under concurrent PostgreSQL requests
+PASS public contact projection and private staff persistence
+PASS owned edits publish atomically and reject stale versions
+PASS staff removal cannot be resurrected by synchronization
+PASS schema reapplication preserves account, session and moderation state
+PASS RLS denies client role rows even after accidental SELECT grants
+PASS approved privacy erasure cascades through directory and private metadata

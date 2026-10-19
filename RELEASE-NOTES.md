@@ -1,3 +1,11 @@
+# 2026.10.19-directory-rc3 — explicit Python entrypoint
+
+## Explicit Python entrypoint correction
+
+The catch-all now targets `/api/index.py?__stratevo_path=/$1`, explicitly matching the Python function filename while retaining original-path recovery. Configuration, GET/HEAD/POST routing and query preservation are covered by 93 passing tests. Both rewrite-simulated browser suites passed on fallback and isolated PostgreSQL. Logs: `validation/explicit-entrypoint-*.log`.
+
+These checks do not certify an actual Vercel build. The correction is prepared for the approved branch push and Arena sandbox preview. No production hosting, database or DNS change was performed.
+
 # 2026.10.19-directory-rc2 — routing correction
 
 The supplied Vercel deployment returned `{"error":"Not found"}` for home, supplier and health. The prior local checks bypassed the catch-all rewrite. This release explicitly carries the public path in the Vercel destination and restores it in the adapter before routing GET/HEAD/POST, preserving query filters and request bodies. It does not trust forwarding headers.

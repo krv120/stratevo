@@ -28,3 +28,15 @@ Before deployment, rehearse application rollback against a restored database. Pr
 - Strict persistence mode is fail-closed, not database provisioning. Do not enable real submissions without verifying it on the actual host.
 - Optional TOTP means password/token strength and secret protection remain essential.
 - No live mail, booking completion, production database, DNS or deployment smoke test was performed for this candidate.
+
+## Catch-all routing contract
+
+The repository root must be the Vercel project Root Directory; no frontend framework preset or static output directory is required. The Python entrypoint is `api/index.py` (`BaseHTTPRequestHandler`, not WSGI/ASGI).
+
+```json
+{"rewrites":[{"source":"/(.*)","destination":"/api/index.py?__stratevo_path=/$1"}]}
+```
+
+The explicit `.py` destination targets the function file. The query envelope preserves the original route if the runtime supplies the rewritten destination as `self.path`. The adapter restores it before dispatch and preserves ordinary query values and POST bodies. Direct original request paths still work. A bare `/api/index.py` destination alone does not provide this fallback. Markdown links are not valid destination strings.
+
+After your GitHub push, check the new deployment's `/`, `/supplier`, `/marketplace`, `/site.css`, and `/api/health`, then perform an authorized synthetic registration. The older commit-specific deployment URL does not establish whether the new revision works. Local rewrite simulations are regression checks, not evidence of a successful hosted build. No Vercel account connection is needed to apply these source changes.

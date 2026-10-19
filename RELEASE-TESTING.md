@@ -35,7 +35,7 @@ Review `validation/` and `RELEASE-NOTES.md` for the final recorded results. Hist
 
 ## Exact archive
 
-`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc2.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
+`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc3.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
 
 ## Routing regression
 
