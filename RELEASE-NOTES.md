@@ -1,3 +1,13 @@
+# 2026.10.19-directory-rc4 — direct registration to Marketplace
+
+Removed the sign-in-link request form and obsolete navigation anchors. Successful registration now navigates automatically to Marketplace with the published listing highlighted. Validation and failed saves retain the form; retry/idempotency protection remains. Active registration sessions can use My Supplier Account; expired-session access requires ownership-verified assistance.
+
+The explicit Vercel destination `/api/index.py?__stratevo_path=/$1` and adapter path recovery remain in place. Tests cover the configured rewrite, public pages/assets/health, query preservation, POST registration and HEAD requests. Browser scenarios cover automatic navigation, privacy, blocked storage, duplicate submissions and response-loss/timeout retries on both storage modes.
+
+This is source/local regression evidence, not an observed Vercel deployment. Use the new commit's deployment, not the earlier f357c81 deployment URL. Project settings, environment and durable database provisioning must still be correct; no zero-error guarantee is made. No production data, DNS or main-branch changes are included.
+
+---
+
 # 2026.10.19-directory-rc3 — explicit Python entrypoint
 
 ## Explicit Python entrypoint correction

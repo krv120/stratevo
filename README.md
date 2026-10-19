@@ -21,7 +21,7 @@ The local server binds to `0.0.0.0:8000`. Set your own strong admin password/tok
 
 ## Current contract
 
-- `/supplier`: single-step required company, category/custom specialty, description, private contact/email and one accuracy/Terms/Privacy consent. Optional phone, country, city and website. Bare domains are normalized to HTTPS.
+- `/supplier`: single-step required company, category/custom specialty, description, private contact/email and one accuracy/Terms/Privacy consent. Optional phone, country, city and website. Bare domains are normalized to HTTPS. After the server confirms publication, registration automatically opens Marketplace with the new listing highlighted. The sign-in-link request form has been removed; existing sessions can use My Supplier Account. If the session expires, contact STRATEVO for ownership-verified access help.
 - `/marketplace`: search/category-filtered supplier cards, accessible details dialog, external booking CTA. Public APIs exclude contact/email/phone/website/location and scrub recognizable contact strings from public text.
 - `/supplier/account`: session-authenticated profile changes, withdrawal, browser-backup clearing. Owner actions never authorize restoration of removed/missing records.
 - `/admin`: direct access only. Password or token works without TOTP when no TOTP secret is configured; configured MFA remains enforced. Private directory, moderation, rights operations and mail queue are authenticated.

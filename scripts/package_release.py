@@ -37,7 +37,7 @@ def build(output):
         dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip())
     except subprocess.CalledProcessError:
         commit,dirty = 'unavailable',True
-    manifest = {'release_version':'2026.10.19-directory-rc3','package_date':'2026-10-19',
+    manifest = {'release_version':'2026.10.19-directory-rc4','package_date':'2026-10-19',
                 'base_commit':commit,'worktree_modified':dirty,
                 'note':'Hashes identify exact packaged bytes; manifest excludes itself.',
                 'files':{n:hashlib.sha256(d).hexdigest() for n,d in sorted(files.items())}}
@@ -57,5 +57,5 @@ def build(output):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--output',default=str(ROOT/'private'/'STRATEVO-2026.10.19-directory-rc3.zip'))
+    parser=argparse.ArgumentParser();parser.add_argument('--output',default=str(ROOT/'private'/'STRATEVO-2026.10.19-directory-rc4.zip'))
     build(parser.parse_args().output)
