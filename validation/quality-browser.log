@@ -1,6 +1,0 @@
-PASS seven public routes at five widths; screenshots; axe; no unsolicited external requests, cookies, localStorage or sessionStorage; no broken public assets
-PASS guided required/invalid/unknown input, keyboard progression, back/edit, reviewed handoff, no contact prefill, minimal stage hooks, real inquiry save and lost-response retry with identical payload
-PASS expired and malformed draft handling; blocked-storage copy fallback retains user answers
-PASS inquiry abort timeout, repeated-submit guard and preserved retry fields (transport deliberately stalled, clock advanced)
-PASS clearly illustrative comparison filters, keyboard operation, FAQ disclosure and offline filter behavior
-PASS no-JavaScript content/fallback, no page exceptions and deterministic non-ranking comparison

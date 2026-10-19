@@ -1,3 +1,0 @@
-/home/user/stratevo/.venv/lib/python3.11/site-packages/platformdirs/api.py:459: RuntimeDirWarning: XDG_RUNTIME_DIR is not set, falling back to /tmp/runtime-1001
-  return Path(self.user_runtime_dir)
-PASS actual Vercel adapter postgres: mobile review/axe, response-loss idempotent publication, secure management session, portal redirect, withdrawal, inquiry, production MFA/admin and no page exceptions

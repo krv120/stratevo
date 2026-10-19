@@ -144,7 +144,7 @@ def email_address(data):
     email = field(data, 'email', maximum=254).casefold()
     local, _, domain = email.partition('@')
     if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", email) or len(local)>64 or local.startswith('.') or local.endswith('.') or '..' in local:
-        raise WorkflowError('Enter a valid email address.')
+        raise WorkflowError('Enter a valid email address.',field='email')
     return email
 
 

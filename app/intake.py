@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS notification_jobs (
 '''
 TABLES = ('customer_inquiries','supplier_reviews','notification_jobs')
 CONSENT_VERSION = 'inquiry-2026-10-12'
-SECRET = re.compile(r'AIza[0-9A-Za-z_-]{35}|sk-(?:proj-)?[A-Za-z0-9_-]{24,}|-----BEGIN .*PRIVATE KEY-----')
+SECRET = re.compile(r'sk-(?:proj-)?[A-Za-z0-9_-]{24,}|-----BEGIN .*PRIVATE KEY-----')
 
 
 def recipient(db=None):
@@ -41,7 +41,7 @@ def enqueue(db, kind, entity_id, summary):
     payload=json.loads(row['payload'] if kind=='customer' else row['private_profile']) if row else {'summary':summary}
     payload.pop('license_pdf',None)
     if kind=='supplier':payload['products']=[json.loads(r['public_payload']) for r in db.execute('SELECT public_payload FROM market_products WHERE owner_id=? ORDER BY created_at DESC LIMIT 50',(entity_id,)).fetchall()]
-    log_event(db,'buyer_inquiry' if kind=='customer' else 'supplier_published',entity_id,payload)
+    log_event(db,'buyer_inquiry' if kind=='customer' else 'supplier_submitted',entity_id,payload)
     queue_pending(db,kind,entity_id)
 
 
@@ -87,7 +87,7 @@ def submit(data):
         ('name',1,120),('business',0,160),('product',3,200),('requirements',20,6000),
         ('destination',1,100),('quantity',1,100),('budget',0,150),('timeline',0,150),('contact',0,100))}
     payload['email']=s.email_address(data)
-    if data.get('source') not in ('form','ai','assessment'):raise s.WorkflowError('Invalid inquiry source.')
+    if data.get('source') not in ('form','assessment'):raise s.WorkflowError('Invalid inquiry source.')
     payload['source']=data['source']
     if data.get('consent') is not True:raise s.WorkflowError('Confirm the inquiry privacy notice.')
     payload['follow_up_requested']=True

@@ -1,4 +1,4 @@
-"""Self-service listings: email verification publishes, never manager approval.
+"""Private supplier accounts and staff-reviewed product submissions.
 
 Private account/documents are deliberately stored separately from public payloads.
 """
@@ -107,6 +107,7 @@ def product_data(data, profile):
         if currency not in ('EUR','USD','GBP','CNY'):raise s.WorkflowError('Choose a price currency.')
         price=format(amount,'f')
     else:price=None;currency=None
+    if data.get('rights_consent') is not True:raise s.WorkflowError('Confirm that you have the rights to publish these descriptions and images.',field='rights_consent')
     if data.get('content_consent') is not True:raise s.WorkflowError('Confirm that the product text and image contain no supplier identity, contacts, source links or unauthorized content.')
     payload={'title':title,'description':description,'category':category,'location':location or None,'moq':quantity,'unit':unit,'price':price,'currency':currency,'notice':NOTICE}
     return payload,image_data(data.get('image',''))
@@ -146,7 +147,7 @@ def issue(db, account):
     from urllib.parse import quote
     listing_note=('\n\nListing reference: P-'+listing['id'][:12]+'\nMarketplace: '+s.public_base()+'/marketplace?q='+quote(json.loads(listing['public_payload'])['title'][:100])) if listing else ''
     message_id=s.queue(db,account['email'],'STRATEVO — confirm your supplier email',
-                   'Confirm your email to access your supplier account. Products submitted through Confirm and Publish are already public; older pending submissions publish on confirmation. No manager approval is required. Email confirmation is not certification of your business or products.\n\n'+link+listing_note+'\n\nThis link expires in 24 hours and can be used once. If you did not request this, ignore it.')
+                   'Confirm your email to access your supplier account. Your supplier directory listing is separate from email verification. Confirmation does not certify your business.\n\n'+link+listing_note+'\n\nThis link expires in 24 hours and can be used once. If you did not request this, ignore it.')
 
     from app.mail_policy import audit_auth_mail
     audit_auth_mail(db,message_id,account['email'],account['id'])
@@ -154,7 +155,7 @@ def issue(db, account):
 
 
 def register(data, *, immediate=False):
-    """Legacy email-gated import remains supported; the public HTTP form opts into immediate publication."""
+    """Create a supplier account; public form requests an immediate management session, not publication."""
     if immediate:return publish_registration(data)
     s.rate_limit('market-register',20,3600)
     s.public_base()
@@ -166,7 +167,8 @@ def register(data, *, immediate=False):
         owner=str(uuid.uuid4())
         inserted=db.execute('INSERT INTO market_accounts VALUES (?,?,?,?,NULL) ON CONFLICT(email) DO NOTHING RETURNING id',(owner,profile['email'],json.dumps(profile),s.now())).fetchone()
         if inserted:
-            db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),owner,json.dumps(payload),image,'published',s.now()))
+            from app.listings import create_pending
+            create_pending(db,owner,payload,image)
             message_id=issue(db,{'id':owner,'email':profile['email']})
             from app.intake import enqueue
             enqueue(db,'supplier',owner,'Product category: '+payload['category']+'; business country: '+profile['country'])
@@ -193,12 +195,13 @@ def publish_registration(data):
         else:
             # Email alone never grants access or replaces an existing supplier's details.
             if db.execute('SELECT id FROM market_accounts WHERE email=?',(profile['email'],)).fetchone():
-                return {'published':False,'message':'This registration cannot create a new account. If you registered before, use your existing session or request a secure access link.','storage':settings.storage_status()},None
+                return {'submitted':False,'published':False,'message':'This registration cannot create a new account. If you registered before, use your existing session or request a secure access link.','storage':settings.storage_status()},None
             controls.capacity(db,'account',len(image))
             owner=str(uuid.uuid4())
             db.execute('INSERT INTO market_accounts VALUES (?,?,?,?,NULL)',(owner,profile['email'],json.dumps(profile),s.now()))
             db.execute('INSERT INTO market_publications VALUES (?,?,?,?)',(owner,s.digest(key),fingerprint,s.now()))
-            db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),owner,json.dumps(payload),image,'published',s.now()))
+            from app.listings import create_pending
+            create_pending(db,owner,payload,image)
             from app.operations import upsert_supplier
             upsert_supplier(db,owner,{**profile,'product':payload})
             # Missing email/origin configuration never rolls back an otherwise valid publication.
@@ -211,8 +214,8 @@ def publish_registration(data):
             enqueue(db,'supplier',owner,'Product category: '+payload['category']+'; business country: '+profile['country'])
         session=s.session(db,'publisher',owner)
     storage=settings.storage_status()
-    return {'supplier_id':owner,'supplier':{**payload,'reference':owner},'new_submission':not bool(existing),'management':{'method':'http_only_cookie','expires_in_seconds':28800},'published':True,'email_confirmed':False,'redirect':'/supplier/account','_session':session,
-            'storage':storage,'message':'Product published. Your management session is active in this browser. Email ownership is not yet confirmed. '+storage['warning']},message_id
+    return {'supplier_id':owner,'supplier':{**payload,'reference':owner},'new_submission':not bool(existing),'management':{'method':'http_only_cookie','expires_in_seconds':28800},'submitted':True,'published':False,'review_status':'pending','email_confirmed':False,'redirect':'/supplier/account','_session':session,
+            'storage':storage,'message':'Submitted for review. Your account is ready in this browser. Your product is not public until approved. '+storage['warning']},message_id
 
 
 def request_access(data):
@@ -233,7 +236,7 @@ def consume(data):
         if controls.suspended(db,token['owner_id']):raise s.WorkflowError('This supplier account is suspended.',403)
         db.execute('UPDATE market_accounts SET verified_at=COALESCE(verified_at,?) WHERE id=?',(s.now(),token['owner_id']))
         session=s.session(db,'publisher',token['owner_id'])
-    return {'status':'active','redirect':'/supplier/account','message':'Email confirmed. Your submitted products are now published. No manager approval is needed.'},session
+    return {'status':'active','redirect':'/supplier/account','message':'Email confirmed. You can manage your submissions. You can now securely manage your supplier profile.'},session
 
 
 def identity(raw):
@@ -282,32 +285,18 @@ def photo(product_id):
 def mine(raw):
     account=identity(raw)
     profile=json.loads(account['private_profile'])
-    with s.database() as db:rows=db.execute("SELECT id,public_payload,CASE WHEN image='' THEN '' ELSE 'yes' END AS image,visibility FROM market_products WHERE owner_id=? ORDER BY created_at DESC",(account['id'],)).fetchall()
+    with s.database() as db:rows=db.execute("SELECT p.*,COALESCE(r.revision,0) AS revision,COALESCE(r.status,'legacy') AS review_status,COALESCE(r.review_note,'') AS review_note FROM market_products p LEFT JOIN listing_reviews r ON r.product_id=p.id WHERE p.owner_id=? ORDER BY p.created_at DESC",(account['id'],)).fetchall()
     from app.settings import storage_status
-    return {'email_confirmed':account['verified_at'] is not None,'storage':storage_status(),'profile':{k:v for k,v in profile.items() if k!='license_pdf'},'products':[{**public_product(r),'visibility':r['visibility']} for r in rows]}
-
-
-def add_product(raw,data):
-    account=identity(raw)
-    s.rate_limit('market-add:'+account['id'],20,3600)
-    payload,image=product_data(data,json.loads(account['private_profile']))
-    with s.database() as db:
-        controls.capacity(db,'product',len(image))
-        if controls.suspended(db,account['id']):raise s.WorkflowError('This supplier account is suspended.',403)
-        # Lock the owner row to make the 50-product cap atomic on PostgreSQL too.
-        db.execute('UPDATE market_accounts SET created_at=created_at WHERE id=?',(account['id'],))
-        count=db.execute("SELECT COUNT(*) AS n FROM market_products WHERE owner_id=? AND visibility='published'",(account['id'],)).fetchone()['n']
-        stored=db.execute('SELECT COUNT(*) AS n FROM market_products WHERE owner_id=?',(account['id'],)).fetchone()['n']
-        if count>=50 or stored>=500:raise s.WorkflowError('Account limit: 50 active listings or 500 retained records. Withdraw active listings or request retention review.',409)
-        db.execute('INSERT INTO market_products VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),account['id'],json.dumps(payload),image,'published',s.now()))
-    return {'message':'Product published to the Marketplace.'}
+    return {'email_confirmed':account['verified_at'] is not None,'storage':storage_status(),'profile':{k:v for k,v in profile.items() if k!='license_pdf'},'products':[{**public_product(r),'image_url':'/api/marketplace/own-image/'+r['id'] if r['image'] else None,'visibility':r['visibility'],'revision':r['revision'],'review_status':r['review_status'],'review_note':r['review_note']} for r in rows]}
 
 
 def withdraw(raw,data):
     account=identity(raw);product_id=s.field(data,'id',maximum=40)
     with s.database() as db:
+        controls.capacity(db,'lock')
         changed=db.execute("UPDATE market_products SET visibility='withdrawn' WHERE id=? AND owner_id=?",(product_id,account['id']))
         if changed.rowcount!=1:raise s.WorkflowError('Product not found.',404)
+        db.execute("UPDATE listing_reviews SET status='withdrawn',revision=revision+1,updated_at=? WHERE product_id=?",(s.now(),product_id))
     return {'message':'Product withdrawn from the Marketplace.'}
 
 
@@ -316,21 +305,7 @@ def moderate(data):
     with s.database() as db:
         changed=db.execute("UPDATE market_products SET visibility='hidden' WHERE id=?",(product_id,))
         if changed.rowcount!=1:raise s.WorkflowError('Product not found.',404)
-    return {'message':'Product hidden. This is post-publication moderation, not an approval requirement.'}
-
-
-def research_rows():
-    with s.database() as db:
-        rows=db.execute("SELECT p.id,p.public_payload FROM market_products p JOIN market_accounts a ON a.id=p.owner_id WHERE (a.verified_at IS NOT NULL OR EXISTS (SELECT 1 FROM market_publications mp WHERE mp.account_id=a.id)) AND p.visibility='published' AND NOT EXISTS (SELECT 1 FROM account_controls c WHERE c.account_id=a.id AND c.suspended=1) ORDER BY p.created_at DESC LIMIT 2000").fetchall()
-    result=[]
-    for row in rows:
-        p=json.loads(row['public_payload'])
-        result.append({'reference':'P-'+row['id'][:12], 'description':p['title']+'. '+p['description'],
-            'advertised_moq':{'quantity':p['moq'],'unit':p['unit']},
-            'advertised_price':{'display':((p['currency']+' '+p['price']) if p['price'] else 'Not supplied'),'currency_code':p['currency'],'exact_variant_confirmed':False},
-            'matrix':{'category':p['category'],'location':p['location'],'lead_time_days':None,'certifications_verified':[],'certifications_claimed':[]},
-            'verification_status':'supplier_provided_unverified', 'source_note':NOTICE})
-    return result
+    return {'message':'Product hidden from the Marketplace.'}
 
 
 def admin_accounts(offset=0):

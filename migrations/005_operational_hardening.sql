@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS listing_reports (id TEXT PRIMARY KEY, product_id TEXT
 CREATE TABLE IF NOT EXISTS mail_state (outbox_id TEXT PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE, status TEXT NOT NULL, updated_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_session_meta (digest TEXT PRIMARY KEY REFERENCES sessions(digest) ON DELETE CASCADE, actor TEXT NOT NULL, credential_version TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_totp (actor TEXT PRIMARY KEY, counter BIGINT NOT NULL);
-CREATE TABLE IF NOT EXISTS ai_metrics (day TEXT PRIMARY KEY, successes BIGINT NOT NULL DEFAULT 0, failures BIGINT NOT NULL DEFAULT 0, elapsed_ms BIGINT NOT NULL DEFAULT 0, input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS event_date ON security_events(created_at);
 CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent_at,claimed_until,attempts);
 CREATE INDEX IF NOT EXISTS account_date ON market_accounts(created_at,id);
@@ -32,8 +31,6 @@ ALTER TABLE admin_session_meta ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON admin_session_meta FROM PUBLIC;
 ALTER TABLE admin_totp ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON admin_totp FROM PUBLIC;
-ALTER TABLE ai_metrics ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON ai_metrics FROM PUBLIC;
 
 CREATE TABLE IF NOT EXISTS suppliers (
  id TEXT PRIMARY KEY REFERENCES market_accounts(id) ON DELETE CASCADE,
@@ -54,12 +51,7 @@ CREATE TABLE IF NOT EXISTS notification_attempts (
  id TEXT PRIMARY KEY, notification_id TEXT REFERENCES admin_notifications(id) ON DELETE CASCADE,
  transport TEXT NOT NULL, delivery_status TEXT NOT NULL, error_message TEXT NOT NULL, created_at BIGINT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS discovered_leads (
- id TEXT PRIMARY KEY, query TEXT NOT NULL, lead_type TEXT NOT NULL, company_name TEXT NOT NULL,
- country TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new',
- created_at BIGINT NOT NULL, actor TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS discovered_leads_date ON discovered_leads(created_at,id);
+
 
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON suppliers FROM PUBLIC;
@@ -69,8 +61,6 @@ ALTER TABLE admin_notifications ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON admin_notifications FROM PUBLIC;
 ALTER TABLE notification_attempts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON notification_attempts FROM PUBLIC;
-ALTER TABLE discovered_leads ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON discovered_leads FROM PUBLIC;
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN REVOKE ALL ON ALL TABLES IN SCHEMA stratevo_private FROM anon; END IF; END $$;
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN REVOKE ALL ON ALL TABLES IN SCHEMA stratevo_private FROM authenticated; END IF; END $$;
 COMMIT;

@@ -1,11 +1,10 @@
 'use strict';
-// Non-blocking storage disclosure. Never disable a form because diagnostics fail.
-(async()=>{
- const indicators=document.querySelectorAll('[data-storage-status]');if(!indicators.length)return;
- try{const response=await fetch('/api/health',{credentials:'same-origin'});const data=await response.json();
-  if(data.storage?.warning)for(const el of indicators){el.textContent=data.storage.warning;el.hidden=false;}
- }catch(_){/* The form's own result remains authoritative. */}
+(()=>{
+ const KEY='stratevo_supplier_public_v1',FIELDS=['id','company','focus','focus_label','specialty','description'];
+ function clear(){try{localStorage.removeItem(KEY);}catch(_){}}
+ function save(supplier){if(!supplier)return false;const value=Object.fromEntries(FIELDS.map(k=>[k,String(supplier[k]||'')]));try{localStorage.setItem(KEY,JSON.stringify({version:1,expires_at:Date.now()+7*86400000,supplier:value}));return true;}catch(_){return false;}}
+ function load(){try{const value=JSON.parse(localStorage.getItem(KEY)||'null');if(!value||value.version!==1||!Number.isFinite(value.expires_at)||value.expires_at<Date.now()||!value.supplier?.id){clear();return null;}return value.supplier;}catch(_){clear();return null;}}
+ async function reconcile(){const value=load();if(!value)return;try{const result=await window.StratevoUI.api('/api/suppliers/sync',{id:value.id},10000);if(result.supplier)save(result.supplier);else clear();}catch(_){/* A browser record never grants ownership or becomes a public server listing. */}}
+ window.StratevoStorage={save,clear,reconcile};
+ reconcile();
 })();
-
-// No supplier/inquiry records have ever been cached by this module. Do not scan or
-// upload arbitrary localStorage values: they may belong to unrelated deployments/users.

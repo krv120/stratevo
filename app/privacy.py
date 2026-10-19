@@ -37,36 +37,3 @@ def buyer_safe(value):
     if isinstance(value, list):
         return [buyer_safe(item) for item in value]
     return value
-
-
-def safe_answer(text):
-    """Fail closed on unapproved links in model output, including bare source domains.
-
-    Do not rewrite a potentially misleading model recommendation around a removed
-    link. Replace the entire answer instead. Booking and owner contact are allowed.
-    """
-    text = normalized(text)
-    from app import settings
-    allowed = {urlsplit(settings.canonical()).hostname}
-    approved_contact=settings.contact()
-    approved_booking=urlsplit(settings.booking())
-    if SOURCE.search(text):
-        return private_answer()
-    for found in LINK.finditer(text):
-        target = found.group().rstrip('.,;:!?)')
-        if approved_contact and target.casefold() == approved_contact.casefold():continue
-        if '@' in target:return private_answer()
-        try:
-            url = urlsplit(target if '://' in target else 'https://' + target)
-            if url.scheme not in ('http','https') or not url.hostname or url.username or url.password:return private_answer()
-        except ValueError:
-            return private_answer()
-        if url.hostname in allowed:continue
-        if url == approved_booking:continue
-        return private_answer()
-    return text
-
-
-def private_answer():
-    from app.settings import booking
-    return 'Supplier identities, contact details and source links remain private. I can compare anonymized evidence from the supplied research after you confirm the product, volume, preferred supplier location and required certifications. For human review: '+booking()

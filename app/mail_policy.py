@@ -87,7 +87,7 @@ def send(recipient,subject,body,identifier,*,authentication=False):
         if authentication:raise s.WorkflowError('Authentication links require an email transport, not a webhook.',503)
         url=os.environ['NOTIFICATION_WEBHOOK_URL'];parsed=urlsplit(url)
         # Owner-controlled integration URL only, never accepted from an HTTP payload.
-        from app.discovery import safe_web_url
+        from app.normalization import safe_web_url
         if not safe_web_url(url) or parsed.scheme!='https':raise s.WorkflowError('Invalid notification webhook configuration.',503)
         if parsed.hostname=='hooks.slack.com':payload={'text':subject+'\n'+body[:3000]}
         elif parsed.hostname in ('discord.com','discordapp.com'):payload={'content':(subject+'\n'+body)[:1900],'allowed_mentions':{'parse':[]}}
@@ -108,7 +108,7 @@ def log_event(db,event_type,entity_id,payload):
     db.execute('INSERT INTO admin_notifications(id,entity_id,event_type,recipient,subject,body_preview,payload_json,created_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(entity_id,event_type) DO NOTHING',
                (identifier,entity_id,event_type,recipient,subject,subject,json.dumps(payload),s.now()))
     row=db.execute('SELECT id,outbox_id FROM admin_notifications WHERE entity_id=? AND event_type=?',(entity_id,event_type)).fetchone()
-    if (event_type=='ai_lead_alert' or ':update:' in entity_id) and not row['outbox_id'] and (recipient or transport()=='webhook'):
+    if (':update:' in entity_id) and not row['outbox_id'] and (recipient or transport()=='webhook'):
         from app.settings import canonical
         body=json.dumps(payload,indent=2,ensure_ascii=False)+'\n\nPrivate manager: '+canonical()+'/admin'
         try:mail=s.queue(db,recipient or 'admin-inbox@example.invalid',subject,body)
@@ -118,7 +118,7 @@ def log_event(db,event_type,entity_id,payload):
 
 
 def bind_notification(db,kind,entity_id,outbox_id):
-    event='buyer_inquiry' if kind=='customer' else 'supplier_published'
+    event='buyer_inquiry' if kind=='customer' else 'supplier_submitted'
     db.execute('UPDATE admin_notifications SET outbox_id=?,recipient=? WHERE entity_id=? AND event_type=?',(outbox_id,admin_recipient(db),entity_id,event))
 
 
@@ -130,7 +130,7 @@ def record_attempt(db,outbox_id,status,error=''):
 
 
 def dispatch_entity(kind,identifier):
-    event='buyer_inquiry' if kind=='customer' else 'supplier_published'
+    event='buyer_inquiry' if kind=='customer' else 'supplier_submitted'
     try:
         with s.database() as db:
             from app.intake import queue_pending
@@ -164,7 +164,7 @@ def configure(data,actor):
 def test_notification(actor):
     s.rate_limit('notification-test',3,3600)
     with s.database() as db:
-        identifier=str(uuid.uuid4());log_event(db,'ai_lead_alert',identifier,{'test':True,'requested_by':actor})
+        identifier=str(uuid.uuid4());log_event(db,'notification_test',identifier,{'test':True,'requested_by':actor})
         recipient=admin_recipient(db)
         if not recipient and transport()!='webhook':return {'message':'Test recorded in admin inbox. Configure a recipient and transport first.'}
         mail=s.queue(db,recipient or 'admin-inbox@example.invalid','STRATEVO — requested notification test','Operator-requested delivery test; contains no supplier or buyer data.')

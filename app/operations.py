@@ -23,14 +23,8 @@ CREATE TABLE IF NOT EXISTS notification_attempts (
  id TEXT PRIMARY KEY, notification_id TEXT REFERENCES admin_notifications(id) ON DELETE CASCADE,
  transport TEXT NOT NULL, delivery_status TEXT NOT NULL, error_message TEXT NOT NULL, created_at BIGINT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS discovered_leads (
- id TEXT PRIMARY KEY, query TEXT NOT NULL, lead_type TEXT NOT NULL, company_name TEXT NOT NULL,
- country TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new',
- created_at BIGINT NOT NULL, actor TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS discovered_leads_date ON discovered_leads(created_at,id);
 '''
-TABLES=('suppliers','platform_settings','admin_notifications','notification_attempts','discovered_leads')
+TABLES=('suppliers','platform_settings','admin_notifications','notification_attempts')
 
 
 def upsert_supplier(db,identifier,profile,created_at=None):
@@ -57,7 +51,7 @@ def supplier_rows(offset=0,query=''):
         for row in rows[:25]:
             profile=json.loads(row['full_metadata'] or row['private_profile']);profile.pop('license_pdf',None)
             result.append({'id':row['id'],'created_at':row['created_at'],'profile':profile,'status':row['status'] or 'new','source':row['source'] or 'user_submission','featured':bool(row['featured']),'verification_note':row['verification_note'] or '', 'email_confirmed':row['verified_at'] is not None})
-    return {'suppliers':result,'has_more':len(rows)>25,'offset':offset,'notice':'NEW SUBMISSION is self-reported, not independent business verification. Seed research remains in the separate private research panel.'}
+    return {'suppliers':result,'has_more':len(rows)>25,'offset':offset,'notice':'NEW SUBMISSION is self-reported, not independent business verification. Product reviews are managed separately.'}
 
 
 def supplier_action(data,actor):
@@ -83,25 +77,7 @@ def supplier_action(data,actor):
             if set(changes)-allowed:raise s.WorkflowError('Unsupported profile field.')
             profile=marketplace.private_profile({**profile,**changes,'consent':True})
             db.execute('UPDATE market_accounts SET private_profile=? WHERE id=?',(json.dumps(profile),identifier));upsert_supplier(db,identifier,profile)
-            notice=mail_policy.log_event(db,'supplier_published',identifier+':update:'+str(uuid.uuid4()),profile)
+            notice=mail_policy.log_event(db,'supplier_updated',identifier+':update:'+str(uuid.uuid4()),profile)
         controls.event(db,actor,'supplier_'+action,identifier)
     if notice:mail_policy.dispatch_notice(notice)
     return {'message':'Supplier updated. Review notes are not certification or automatic publication approval.'}
-
-
-def lead_rows(offset=0,status='all'):
-    offset=page_number(offset)
-    if status not in ('all','new','contacted','qualified','rejected'):raise s.WorkflowError('Invalid lead status.')
-    with s.database() as db:
-        rows=db.execute('SELECT * FROM discovered_leads WHERE (?=\'all\' OR status=?) ORDER BY created_at DESC,id LIMIT 26 OFFSET ?',(status,status,offset)).fetchall()
-    return {'leads':[{**dict(r),'lead':json.loads(r['payload_json'])} for r in rows[:25]],'has_more':len(rows)>25,'offset':offset}
-
-
-def update_lead(data,actor):
-    status=data.get('status');identifier=s.field(data,'id',maximum=40)
-    if status not in ('new','contacted','qualified','rejected'):raise s.WorkflowError('Invalid lead status.')
-    with s.database() as db:
-        if db.execute('UPDATE discovered_leads SET status=? WHERE id=?',(status,identifier)).rowcount!=1:raise s.WorkflowError('Lead not found.',404)
-        from app.controls import event
-        event(db,actor,'lead_status',identifier)
-    return {'message':'Lead status saved. Qualification is a staff decision, not AI verification.'}

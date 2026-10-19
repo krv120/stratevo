@@ -4,7 +4,7 @@ import os
 import re
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-DEFAULT_CANONICAL = 'https://stratevo.online'  # Owner-supplied, not DNS/redirect verification.
+DEFAULT_CANONICAL = 'https://www.stratevo.online'  # Owner-supplied, not DNS/redirect verification.
 DEFAULT_BOOKING = 'https://app.minup.io/book/stratevo'  # Owner-authorized destination.
 
 
@@ -26,28 +26,22 @@ def origin(name, default='', local=False):
     return value
 
 
-def canonical():return origin('CANONICAL_BASE_URL',DEFAULT_CANONICAL)
+def canonical():return DEFAULT_CANONICAL
 
 
 def public_origin():
     value=origin('PUBLIC_BASE_URL',local=environment() in ('local','test'))
     if environment() not in ('local','test') and os.environ.get('PUBLIC_ORIGIN_VERIFIED')!='true':raise ValueError('PUBLIC_ORIGIN_VERIFIED is required')
+    if urlsplit(value).hostname in ('stratevo.online','www.stratevo.online'):return DEFAULT_CANONICAL
     return value
 
 
 def booking():
-    value=os.environ.get('BOOKING_URL',DEFAULT_BOOKING).strip()
-    p=urlsplit(value)
-    if p.scheme!='https' or not p.hostname or p.username or p.password or any(c.isspace() for c in value):raise ValueError('Invalid BOOKING_URL')
-    return value
+    return DEFAULT_BOOKING
 
 
 def contact():
-    if os.environ.get('PUBLIC_CONTACT_VERIFIED')!='true':return ''
-    value=os.environ.get('PUBLIC_CONTACT_EMAIL','').strip()
-    from app.suppliers import email_address, WorkflowError
-    try:return email_address({'email':value}) if value else ''
-    except WorkflowError:raise ValueError('Invalid verified contact configuration') from None
+    return 'info@stratevo.store'
 
 
 DATABASE_VARIABLES = ('DATABASE_URL', 'STRATEVO_DATABASE_URL', 'POSTGRES_URL',
@@ -103,29 +97,3 @@ def render_public(html_text):
     html_text=re.sub(r'<a data-public-contact href="/inquiry">Contact through a sourcing inquiry</a>',lambda _:replacement,html_text)
     html_text=html_text.replace(DEFAULT_BOOKING,html.escape(booking(),quote=True))
     return html_text
-
-AI_KEY_VARIABLES=('OPENAI_API_KEY','STRATEVO_AI_API_KEY','AI_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','ANTHROPIC_API_KEY','PERPLEXITY_API_KEY','OPENROUTER_API_KEY','GROQ_API_KEY')
-AI_DEFAULTS={
- 'openai':('https://api.openai.com/v1','gpt-4o-mini'),
- 'gemini':('https://generativelanguage.googleapis.com/v1beta','gemini-2.5-flash'),
- 'anthropic':('https://api.anthropic.com/v1','claude-sonnet-4-5'),
- 'perplexity':('https://api.perplexity.ai','sonar-pro'),
- 'openrouter':('https://openrouter.ai/api/v1','openai/gpt-4o-mini'),
- 'groq':('https://api.groq.com/openai/v1','llama-3.3-70b-versatile')}
-
-
-def ai_configuration():
-    variable=next((n for n in AI_KEY_VARIABLES if os.environ.get(n,'').strip()),'')
-    key=os.environ.get(variable,'').strip()
-    inferred=next((p for prefix,p in [('sk-ant-','anthropic'),('AIza','gemini'),('pplx-','perplexity'),('sk-or-','openrouter'),('gsk_','groq')] if key.startswith(prefix)),None)
-    names={'GEMINI_API_KEY':'gemini','GOOGLE_API_KEY':'gemini','ANTHROPIC_API_KEY':'anthropic','PERPLEXITY_API_KEY':'perplexity','OPENROUTER_API_KEY':'openrouter','GROQ_API_KEY':'groq'}
-    provider=os.environ.get('AI_PROVIDER','').strip().lower() or inferred or names.get(variable,'openai')
-    provider={'google':'gemini','claude':'anthropic'}.get(provider,provider)
-    if provider not in AI_DEFAULTS:raise ValueError('Unsupported AI_PROVIDER')
-    base,default=AI_DEFAULTS[provider]
-    override=os.environ.get('AI_BASE_URL','').strip().rstrip('/')
-    # The old template set the OpenAI default even for unrelated provider keys.
-    base=(override if override!='https://api.openai.com/v1' or provider=='openai' else '') or base
-    parsed=urlsplit(base)
-    if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(c.isspace() for c in base) or base.endswith('/chat/completions'):raise ValueError('AI_BASE_URL must be an HTTPS API base URL')
-    return {'key':key,'provider':provider,'base':base,'model':os.environ.get('AI_MODEL','').strip() or default,'key_variable':variable}

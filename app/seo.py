@@ -5,16 +5,15 @@ import os
 from urllib.parse import urlsplit
 
 PAGES={
- '/assessment':('China sourcing assessment — build a clear product brief','Define your product, quantity, specifications, budget and destination. Review your sourcing brief before choosing to send a private inquiry.'),
- '/methodology':('How to evaluate manufacturers and compare sourcing quotes','See how STRATEVO structures supplier evaluation: comparable specifications, MOQ, quote scope, evidence, samples and delivery. Includes an illustrative comparison.'),
- '/cookies':('Cookies and browser storage','See the essential sessions and requested temporary drafts used by this STRATEVO build. No optional analytics or advertising trackers are installed.'),
- '/':('China sourcing assistance for small businesses','STRATEVO helps e-commerce sellers, resellers and small businesses define China sourcing requirements and assess their next steps.'),
- '/inquiry':('Send a China sourcing inquiry','Share your product specifications, quantity and destination privately with STRATEVO. No order, payment or commitment is created.'),
- '/supplier':('Supplier registration','Register your business privately and submit product information to STRATEVO. Email confirmation is not business verification.'),
- '/marketplace':('Supplier-submitted product Marketplace','Explore supplier-submitted product details, advertised prices and minimum quantities. Inquiries go through STRATEVO.'),
- '/ai':('STRATEVO sourcing assistant','Get sourcing guidance and prepare a clear inquiry. No customer account required. AI answers and supplier claims require checking.'),
- '/privacy':('Privacy and data-use notice','How this STRATEVO preview handles inquiries, supplier registrations, AI messages and essential sessions; remaining launch disclosures.'),
- '/terms':('Service scope and website terms','Understand STRATEVO sourcing assistance, unverified product information and the separate proposal required for paid services.')}
+ '/':('China sourcing for e-commerce and private-label businesses','Work with STRATEVO to define your China sourcing brief, compare manufacturers and identify the evidence needed before choosing a supplier. Book a sourcing call.'),
+ '/supplier':('Register your supplier profile','Introduce your company, focus and manufacturing capabilities in the STRATEVO Marketplace. Publish your supplier profile while keeping contact details private.'),
+ '/marketplace':('Supplier Marketplace — manufacturing capabilities','Explore supplier names, focus areas and capabilities. Discuss specifications, pricing and next steps with STRATEVO through a sourcing call.'),
+ '/methodology':('How STRATEVO evaluates sourcing options','Learn how specifications, minimum order quantities, quote scope, samples and certification evidence shape a structured manufacturer comparison.'),
+ '/assessment':('Prepare for your sourcing consultation','Bring your product idea, quantity, budget, destination and timeline to a STRATEVO sourcing call. Uncertain requirements are welcome.'),
+ '/inquiry':('Contact STRATEVO about your sourcing project','Book a direct sourcing conversation with STRATEVO or contact us by email to discuss manufacturing requirements and a clearly defined engagement.'),
+ '/privacy':('Privacy and personal information','Read how STRATEVO handles supplier profiles, private contact details, account sessions, notifications, booking and data-rights requests.'),
+ '/cookies':('Cookies and essential browser storage','Understand STRATEVO’s essential sign-in cookie, public supplier backup and external Minup booking links. No advertising trackers are included.'),
+ '/terms':('Terms, operator information and listing reports','Review STRATEVO’s independent sourcing role, supplier listing responsibilities, operator contact information and notice-and-review procedure.')}
 
 
 def canonical():
@@ -25,7 +24,7 @@ def indexable(route):
     from app.settings import environment
     try:production=environment()=='production'
     except ValueError:return False
-    return production and os.environ.get('SITE_LAUNCH_APPROVED')=='true' and os.environ.get('PUBLIC_ORIGIN_VERIFIED')=='true' and os.environ.get('SITE_INDEXABLE','false').lower()=='true' and route in PAGES and route not in ('/ai','/inquiry')
+    return production and os.environ.get('SITE_LAUNCH_APPROVED')=='true' and os.environ.get('PUBLIC_ORIGIN_VERIFIED')=='true' and os.environ.get('SITE_INDEXABLE','false').lower()=='true' and route in PAGES and route != '/inquiry'
 
 
 def metadata(route):

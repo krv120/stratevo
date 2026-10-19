@@ -1,77 +1,36 @@
-> **Current Vercel fix:** see [VERCEL-FIX-2026-10-15.md](VERCEL-FIX-2026-10-15.md) for changed immediate-publication behavior, automatic migrations and the limitations of ephemeral fallback. Earlier release results below are historical.
+# Reproducing candidate checks
 
-# Reproducing the reviewed release tests
-
-Version **2026.10.13-rc1**. Use synthetic/isolated environments only. Run from the extracted project root. Do not point tests at a real database or enable live provider/mail services.
+Use isolated synthetic data only. No real emails or bookings are required or authorized by these scripts.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/pip install -r requirements-dev.txt
+mkdir -p private/browser
+cp tests/browser-package.json private/browser/package.json
+npm install --prefix private/browser
+.venv/bin/python scripts/build_content.py
+.venv/bin/python scripts/create_pages.py
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+PYTHONPATH=.:tests .venv/bin/python tests/postgres_current.py
+PYTHONPATH=. .venv/bin/python tests/run_browser.py
+PYTHONPATH=. .venv/bin/python tests/run_browser.py --postgres
+.venv/bin/python -m compileall -q app api scripts tests
+for f in web/*.js; do node --check "$f"; done
+.venv/bin/pip check
+.venv/bin/pip-audit -r requirements.txt
+.venv/bin/bandit -r app api scripts -f json
 ```
 
-Test-only tools (not runtime dependencies):
+Browser tooling uses pinned development packages and a packaged Linux Chromium, or the supported launcher in `tests/browser_support.cjs`. PostgreSQL tests use an isolated local `pgserver` instance, not a managed production database. Browser tests use the actual Vercel request handler through local HTTPS, not Vercel infrastructure. Browser evidence is written into ignored `private/audit/` paths.
 
-```sh
-.venv/bin/python -m pip install pgserver bandit pip-audit
-PYTHONPATH=.:tests .venv/bin/python tests/postgres_integration.py
-.venv/bin/python -m bandit -r app api scripts
-.venv/bin/python -m pip_audit -r requirements.txt --vulnerability-service pypi
-.venv/bin/python -m pip check
-```
+## Scope and interpretation
 
-PostgreSQL integration uses a bundled temporary server beneath `private/` and cleans up only its synthetic fixture. It applies and reapplies migrations 001–005, exercises concurrency and private role/RLS boundaries. Bandit intentionally retains documented findings; a nonzero scan exit is not a successful zero-findings audit.
+Active `test_directory.py` and `test_suppliers.py` cover validation, immediate publication, private/public projections, idempotency, account sessions, auth/MFA, moderation, synchronization and relevant compatible legacy behavior. Retired tests under `tests/previous_contracts/` preserve historical contracts and are **not current passing evidence**.
 
-For Chromium/axe tests, install development tools privately:
+Browser runs cover eleven routes at five widths including 320/375/430px, card/details/booking navigation, single-step registration, private profile changes, optional-MFA admin, moderation, blocked storage, lost response retry, stalled-request timeout and duplicate-submit protection. Keyboard/dialog/drawer behavior, reduced motion, automated accessibility and overflow are checked. Automated accessibility does not replace assistive-technology/manual testing. Booking navigation is intercepted; completion and the external provider's availability are not tested. Mail is disabled/mocked; no delivery claim.
 
-```sh
-mkdir -p private/browser private/audit-20261012 private/release-20261013
-npm install --prefix private/browser --no-audit --no-fund playwright @sparticuz/chromium @axe-core/playwright
-```
+Review `validation/` and `RELEASE-NOTES.md` for the final recorded results. Historical screenshot labels distinguish **local previous-release renders** from live evidence. No live screenshots were obtained.
 
-Create `private/browser-config.json` locally, mode 0600, with `PORT=8002`, `APP_ENV=test`, blank `DATABASE_URL`, `SUPPLIER_SQLITE_PATH` pointing to the absolute `private/browser-test.sqlite3`, `PUBLIC_BASE_URL=http://127.0.0.1:8002`, `COOKIE_SECURE=false`, no AI/SMTP credentials, `MAIL_DELIVERY_ENABLED=false`, `NOTIFICATION_EMAIL=owner@example.invalid`, a fresh local-only random `TEST_ADMIN_PASSWORD` and its PBKDF2 `ADMIN_PASSWORD_HASH`, blank `ADMIN_ACCOUNTS_JSON`, and disabled indexing/erasure/retention apply. Use `app.suppliers.hash_password` to derive the hash; do not use production credentials.
+## Exact archive
 
-In a separate terminal start the synthetic server:
-
-```sh
-.venv/bin/python scripts/run_preview.py private/browser-config.json
-```
-
-Then run:
-
-```sh
-node tests/browser.cjs
-node tests/audit_browser.cjs
-node tests/release_browser.cjs
-```
-
-The browser suites read only that synthetic SQLite outbox to simulate email receipt; no real email is sent. AI success/error/timeout replies are mocked. New inquiry loss/retry tests use actual local persistence. Specific timeout tests deliberately stall transport and advance browser time. Default quotas remain enabled; repeated full runs can exhaust them. Wait for the real window or archive/recreate only the explicitly synthetic fixture with the server stopped. Never lower limits or delete real data to force a pass.
-
-The packaged PNG screenshots show local public pages without private records. They are not production screenshots. Additional before/after captures were retained privately during review. Public source-page generation is reproducible with `python scripts/create_pages.py`. The already-shipped OG image can optionally be regenerated with `scripts/create_brand_assets.py` on a system with DejaVu Sans at the documented script path; that font is a generation dependency, not a new remotely loaded website font.
-
-Run `STRATEVO_RELEASE_COMMIT="$(git rev-parse HEAD)" python scripts/package_release.py` only after the final source/tests/docs are reviewed. Its allowlist excludes private data/configuration/dependencies, includes reviewed evidence only if available, and writes `MANIFEST.json` with release version, source commit and file SHA-256 hashes. A clean build without local validation files contains source but cannot invent missing evidence.
-
-Inspect/extract the ZIP, verify manifest/CRC and exclusions, and rerun unit tests inside the extracted tree. Final application/browser/database evidence must match the packaged source; old reports are historical context, not a replacement for fresh tests.
-
-## Vercel adapter regression additions
-
-After the existing setup (`requirements.txt`, test-only pgserver, browser dependencies), also run:
-
-```sh
-PYTHONPATH=.:tests .venv/bin/python tests/vercel_postgres_integration.py
-PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py
-PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --postgres
-```
-
-The HTTPS browser runner requires the local `openssl` command. It creates a one-day self-signed certificate and isolated synthetic database under `private/`, starts the actual Vercel adapter on a random loopback port, then shuts it down and removes its temporary fixture. No live services or real credentials are used. The original three browser suites still target the isolated port-8002 test server described above.
-
-## AI/operations release verification
-
-Current report: `AI-OPERATIONS-RELEASE-2026-10-15.md`. Run the normal full unit suite and both PostgreSQL scripts, then all existing browser suites. Additionally:
-
-```sh
-PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --engine
-PYTHONPATH=. .venv/bin/python tests/vercel_browser_runner.py --engine --postgres
-```
-
-The engine scenario uses real local HTTPS, real persistence/admin authentication and explicitly synthetic external AI/mail responses. It is not a live-provider or inbox-delivery test. The runner requires local OpenSSL and the existing test-only Playwright/Chromium/axe tooling. No extra production dependencies are needed. Existing browser-suite fixtures must be isolated and fresh enough not to reuse exhausted quotas; never lower production limits to make tests pass.
+`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc1.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.

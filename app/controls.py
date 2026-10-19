@@ -14,14 +14,13 @@ CREATE TABLE IF NOT EXISTS listing_reports (id TEXT PRIMARY KEY, product_id TEXT
 CREATE TABLE IF NOT EXISTS mail_state (outbox_id TEXT PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE, status TEXT NOT NULL, updated_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_session_meta (digest TEXT PRIMARY KEY REFERENCES sessions(digest) ON DELETE CASCADE, actor TEXT NOT NULL, credential_version TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_totp (actor TEXT PRIMARY KEY, counter BIGINT NOT NULL);
-CREATE TABLE IF NOT EXISTS ai_metrics (day TEXT PRIMARY KEY, successes BIGINT NOT NULL DEFAULT 0, failures BIGINT NOT NULL DEFAULT 0, elapsed_ms BIGINT NOT NULL DEFAULT 0, input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS event_date ON security_events(created_at);
 CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent_at,claimed_until,attempts);
 CREATE INDEX IF NOT EXISTS account_date ON market_accounts(created_at,id);
 CREATE INDEX IF NOT EXISTS product_visibility_date ON market_products(visibility,created_at,id);
 CREATE INDEX IF NOT EXISTS inquiry_date ON customer_inquiries(created_at,id);
 '''
-TABLES=('processing_slots','resource_locks','account_controls','security_events','listing_reports','mail_state','admin_session_meta','admin_totp','ai_metrics')
+TABLES=('processing_slots','resource_locks','account_controls','security_events','listing_reports','mail_state','admin_session_meta','admin_totp')
 
 
 def limit(name,default,maximum):

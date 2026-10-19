@@ -142,7 +142,7 @@ class WorkflowTests(unittest.TestCase):
             with response:return response.status,response.headers,response.read()
         try:
             self.assertEqual(request('/api/admin/connections')[0],401)
-            self.assertEqual(request('/api/admin/check-connection',{'service':'ai'})[0],401)
+            self.assertEqual(request('/api/admin/notifications/test',{})[0],401)
             self.assertEqual(request('/api/admin/supplier-profile/fake')[0],401)
             self.assertEqual(request('/api/admin/research')[0],401)
             self.assertEqual(request('/api/admin/license/fake')[0],401)
@@ -153,10 +153,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('HttpOnly',cookie);self.assertIn('Secure',cookie);self.assertIn('SameSite=Lax',cookie)
             cookie=cookie.split(';')[0]
             self.assertEqual(request('/api/admin/applications',cookie=cookie)[0],200)
-            self.assertEqual(request('/api/admin/research',cookie=cookie)[0],200)
+            self.assertEqual(request('/api/admin/research',cookie=cookie)[0],404)
             self.assertEqual(request('/api/supplier/me',cookie=cookie)[0],403)
-            self.assertEqual(request('/api/agent/status',cookie=cookie)[0],200)
-            self.assertEqual(request('/api/admin/connections',cookie=cookie)[0],200)
+            self.assertEqual(request('/api/agent/status',cookie=cookie)[0],404)
+            self.assertEqual(request('/api/admin/notifications',cookie=cookie)[0],200)
             self.verified()
             self.assertEqual(request('/api/admin/supplier-profile/'+self.id(),cookie=cookie)[0],404)
             s.review({'id':self.id(),'decision':'approved'})
@@ -168,14 +168,14 @@ if __name__=='__main__':unittest.main()
 
 class ColdStorageTests(unittest.TestCase):
     def test_vercel_default_path_and_cold_schema(self):
-        from app import connections, catalog
+        from app import connections, directory as directory_service
         with patch.dict(os.environ,{'VERCEL':'1','APP_ENV':'production'},clear=True):
             self.assertEqual(str(connections.sqlite_path(s.DATABASE)),'/tmp/stratevo_runtime.sqlite3')
             with tempfile.TemporaryDirectory() as directory,patch.object(connections,'RUNTIME_SQLITE',Path(directory)/'runtime.sqlite3'):
                 # No initialize() call: both subsystems must bootstrap before their first query.
-                self.assertEqual(catalog.count(),0)
+                self.assertEqual(directory_service.public()['total'],0)
                 with s.database() as db:
-                    for table in ('applications','market_accounts','market_publications','customer_inquiries','discovery_budget','admin_totp','records'):
+                    for table in ('applications','market_accounts','market_publications','customer_inquiries','supplier_directory','admin_totp','listing_reviews'):
                         self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM '+table).fetchone()['n'],0)
                 self.assertEqual((Path(directory)/'runtime.sqlite3').stat().st_mode & 0o777,0o600)
                 s.initialize();s.initialize()

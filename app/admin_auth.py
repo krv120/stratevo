@@ -34,7 +34,6 @@ def accounts():
             if not re.fullmatch(r'pbkdf2_sha256\$600000\$[a-f0-9]{32}\$[a-f0-9]{64}',row['password_hash']):raise ValueError()
             secret=row.get('totp_secret','')
             if secret and len(base64.b32decode(secret,casefold=True))<20:raise ValueError()
-            if settings.environment()=='production' and not secret:raise ValueError()
             result[identifier]=row
         return result
     except Exception:raise s.WorkflowError('Administrator account configuration is invalid.',503) from None
@@ -42,9 +41,9 @@ def accounts():
 
 def setup_status():
     """Public readiness only; never expose account identifiers, hashes or MFA seeds."""
-    message = ('Configure ADMIN_ACCOUNTS_JSON, or a strong ADMIN_PASSWORD plus '
+    message = ('Configure ADMIN_ACCOUNTS_JSON, or a strong ADMIN_PASSWORD in hosting secrets. Optionally configure '
                'ADMIN_TOTP_SECRET in hosting secrets. Alias login name: owner. '
-               'Production requires MFA; there is no default or public access mode.')
+               'MFA is optional and recommended; there is no default or public access mode.')
     try:
         ready = bool(accounts())
     except s.WorkflowError:
@@ -63,7 +62,7 @@ def code(secret,counter):
 def login(data):
     configured=accounts()
     if not configured:
-        if settings.environment()=='production':raise s.WorkflowError('Named administrator accounts with MFA must be configured.',503)
+        if settings.environment()=='production':raise s.WorkflowError('An administrator password or token must be configured.',503)
         return None
     username=data.get('username') or ('owner' if set(configured)=={'owner'} else '')
     row=configured.get(username) if isinstance(username,str) else None

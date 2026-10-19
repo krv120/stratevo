@@ -1,0 +1,2 @@
+const {chromium:playwright}=require('../private/browser/node_modules/playwright');
+exports.launch=async()=>{const {default:chromium,inflate,setupLambdaEnvironment}=await import('../private/browser/node_modules/@sparticuz/chromium/build/index.js');await inflate(require('node:path').resolve('private/browser/node_modules/@sparticuz/chromium/bin/al2023.tar.br'));setupLambdaEnvironment(require('node:os').tmpdir()+'/al2023/lib');return playwright.launch({executablePath:await chromium.executablePath(),args:['--no-sandbox','--disable-dev-shm-usage'],headless:true});};

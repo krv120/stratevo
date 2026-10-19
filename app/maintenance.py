@@ -20,7 +20,8 @@ def export(kind,identifier):
         profile=json.loads(row['private_profile']) if kind=='supplier' else row
         profile={k:v for k,v in profile.items() if k not in ('license_pdf','private_profile')}
         products=[dict(r) for r in db.execute('SELECT id,public_payload,visibility,created_at FROM market_products WHERE owner_id=? ORDER BY created_at,id',(identifier,)).fetchall()] if kind=='supplier' else []
-        return {'id':identifier,'products':products,'profile':profile,'document_included':False,'notice':'Documents require a separate authorized, secure review; no access tokens are exported.'}
+        directory=db.execute('SELECT public_payload,status,revision FROM supplier_directory WHERE id=?',(identifier,)).fetchone() if kind=='supplier' else None
+        return {'id':identifier,'directory':dict(directory) if directory else None,'products':products,'profile':profile,'document_included':False,'notice':'Documents require a separate authorized, secure review; no access tokens are exported.'}
 
 
 def _mail_ids(db,kind,identifier,row):
@@ -28,7 +29,7 @@ def _mail_ids(db,kind,identifier,row):
     if kind in ('supplier','legacy'):
         email=row['email']
         if kind=='supplier':
-            rows=db.execute("SELECT id FROM outbox WHERE recipient=? AND subject='STRATEVO — confirm your supplier email'",(email,)).fetchall()
+            rows=db.execute("SELECT id FROM outbox WHERE recipient=? AND subject IN ('STRATEVO — confirm your supplier email','STRATEVO — listing removal','STRATEVO — listing review decision')",(email,)).fetchall()
         else:
             rows=db.execute("SELECT id FROM outbox WHERE recipient=? AND subject IN ('STRATEVO — verify your application email','STRATEVO — approved supplier access','STRATEVO — application decision')",(email,)).fetchall()
         ids += [r['id'] for r in rows]
