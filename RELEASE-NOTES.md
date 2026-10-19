@@ -1,3 +1,15 @@
+# 2026.10.19-directory-rc2 — routing correction
+
+The supplied Vercel deployment returned `{"error":"Not found"}` for home, supplier and health. The prior local checks bypassed the catch-all rewrite. This release explicitly carries the public path in the Vercel destination and restores it in the adapter before routing GET/HEAD/POST, preserving query filters and request bodies. It does not trust forwarding headers.
+
+The old rewrite fails the new regression; the corrected configuration passes it. Additional browser runs execute all journeys through a simulation of the configured rewrite with both fallback and real isolated PostgreSQL. This is not an actual Vercel deployment test. Vercel access remains disconnected; the existing URL cannot be declared repaired from these checks.
+
+Current source testing: 91 unit/HTTP/envelope checks; rewrite browser suites on both storage modes. Updated logs are under validation/routing-*.log. Prior candidate evidence below remains historical, not evidence that the reported deployed site worked.
+
+Production persistence, backup/restore, legal disclosures, authorized real email and external booking completion remain launch requirements. No production database/DNS operation or deployment was performed. Branch pushes can trigger hosting automation.
+
+---
+
 # 2026.10.19-directory-rc1
 
 ## Delivered source

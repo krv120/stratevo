@@ -14,6 +14,8 @@ npm install --prefix private/browser
 PYTHONPATH=.:tests .venv/bin/python tests/postgres_current.py
 PYTHONPATH=. .venv/bin/python tests/run_browser.py
 PYTHONPATH=. .venv/bin/python tests/run_browser.py --postgres
+PYTHONPATH=. .venv/bin/python tests/run_browser.py --rewrite
+PYTHONPATH=. .venv/bin/python tests/run_browser.py --rewrite --postgres
 .venv/bin/python -m compileall -q app api scripts tests
 for f in web/*.js; do node --check "$f"; done
 .venv/bin/pip check
@@ -33,4 +35,8 @@ Review `validation/` and `RELEASE-NOTES.md` for the final recorded results. Hist
 
 ## Exact archive
 
-`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc1.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
+`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc2.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
+
+## Routing regression
+
+`--rewrite` simulates the configured Vercel rewrite before dispatch to the actual adapter. The former destination loses the original route and fails the regression (homepage, pages, assets and health). This is additional boundary coverage, not proof of a hosted deployment. The latest hosted URL returned JSON Not found; hosting validation remains required after redeployment.
