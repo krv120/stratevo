@@ -1,11 +1,11 @@
 """Vercel adapter: preserve public paths across the serverless catch-all rewrite."""
 from urllib.parse import parse_qsl, urlencode, urlsplit
-from app.server import Handler
+from app.server import Handler as _BaseHandler
 
 ROUTE_PARAMETER = '__stratevo_path'
 
 
-class handler(Handler):
+class handler(_BaseHandler):
     def restore_route(self):
         target = urlsplit(self.path)
         # Only interpret the routing envelope at the function entrypoint. Never

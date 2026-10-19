@@ -2,6 +2,7 @@
 import json
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.request
 from pathlib import Path
 from http.server import ThreadingHTTPServer
@@ -36,6 +37,17 @@ class VercelRoutingTests(contracts.DirectoryTests):
         self.assertEqual(self.http('/api/health')[0], 200)
         self.assertEqual(self.http('/not-a-page')[0], 404)
         self.assertEqual(self.http('/api/not-an-endpoint')[0], 404)
+
+    def test_version_identifies_build_without_database_access(self):
+        from app import release
+        with patch('app.suppliers.database', side_effect=AssertionError('No database access allowed')):
+            status, body, headers = self.http('/api/version')
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)['release'], release.RELEASE)
+            self.assertEqual(set(json.loads(body)), {'release', 'commit'})
+            self.assertEqual(headers['X-Stratevo-Release'], release.RELEASE)
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertEqual(self.http('/api/missing')[2]['X-Stratevo-Release'], release.RELEASE)
 
     def test_head_through_rewrite(self):
         for path in ('/', '/supplier', '/site.css', '/api/health'):
@@ -79,6 +91,18 @@ class RoutingEnvelopeTests(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual(restored, original)
             self.assertEqual(errors, [])
+
+    def test_only_public_handler_export_is_adapter(self):
+        from api import index
+        self.assertFalse(hasattr(index, 'Handler'))
+        self.assertTrue(callable(index.handler.restore_route))
+
+    def test_version_never_echoes_arbitrary_environment_values(self):
+        from app import release
+        with patch.dict('os.environ', {'VERCEL_GIT_COMMIT_SHA': 'not-a-commit-secret'}):
+            self.assertIsNone(release.identity()['commit'])
+        with patch.dict('os.environ', {'VERCEL_GIT_COMMIT_SHA': 'a'*40}):
+            self.assertEqual(release.identity()['commit'], 'a'*40)
 
     def test_preserves_query_values_and_duplicates(self):
         from urllib.parse import parse_qsl, urlsplit

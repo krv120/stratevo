@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from app import suppliers, connections, marketplace, intake, seo, settings, controls, maintenance
-from app import engine_http, mail_policy, listings, directory_http
+from app import engine_http, mail_policy, listings, directory_http, release
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = defaultdict(deque)
@@ -39,6 +39,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
+        self.send_header('X-Stratevo-Release', release.RELEASE)
         self.send_header('Cache-Control', (headers or {}).get('Cache-Control','no-store'))
         self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
         if not seo.indexable(urlparse(self.path).path):self.send_header('X-Robots-Tag','noindex, nofollow')
@@ -87,6 +88,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = urlparse(self.path).path
+        if route == '/api/version':return self.send(200,release.identity())
         if settings.environment()=='production' and self.headers.get('Host','').split(':')[0].lower()=='stratevo.online':
             return self.send(308,b'',headers={'Location':settings.canonical()+self.path})
         if route in directory_http.GETS:return directory_http.get(self,route)
