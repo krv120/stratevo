@@ -12,7 +12,7 @@ from contextlib import ExitStack
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from api.index import handler
-from vercel_rewrite import RewrittenHandler
+from vercel_rewrite import RewrittenHandler, StaticOutputHandler
 from app import connections
 
 Path('private/audit').mkdir(parents=True,exist_ok=True)
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(dir='private') as folder,ExitStack() as stack:
             pg=pgserver.get_server(folder/'postgres');config['POSTGRES_URL']=pg.get_uri()
         stack.enter_context(patch.dict(os.environ,config,clear=True))
         stack.enter_context(patch.object(connections,'RUNTIME_SQLITE',folder/'runtime.sqlite3'))
-        server=ThreadingHTTPServer(('127.0.0.1',0),RewrittenHandler if '--rewrite' in sys.argv else handler)
+        server=ThreadingHTTPServer(('127.0.0.1',0),StaticOutputHandler if '--static' in sys.argv else RewrittenHandler if '--rewrite' in sys.argv else handler)
         tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);tls.load_cert_chain(cert,key);server.socket=tls.wrap_socket(server.socket,server_side=True)
         base='https://127.0.0.1:'+str(server.server_port);os.environ['PUBLIC_BASE_URL']=base
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()

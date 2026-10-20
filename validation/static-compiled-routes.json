@@ -1,0 +1,12 @@
+[
+  {
+    "src": "^\\/api(?:\\/((?!index\\.py$).*))$",
+    "dest": "/api/index.py?__stratevo_path=%2Fapi%2F$1",
+    "check": true
+  },
+  {
+    "src": "^\\/supplier\\/account$",
+    "dest": "/supplier-account.html",
+    "check": true
+  }
+]

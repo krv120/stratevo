@@ -148,6 +148,12 @@ class Handler(BaseHTTPRequestHandler):
                 configured=urlparse(os.environ.get('PUBLIC_BASE_URL',''))
                 return parsed.scheme in ('http','https') and parsed.netloc==self.headers.get('Host') and not (configured.netloc==parsed.netloc and configured.scheme=='https' and parsed.scheme!='https')
             allowed={'https://stratevo.online','https://www.stratevo.online'}
+            # Deployment origins come only from Vercel's server environment,
+            # never a browser Host or forwarding header. No wildcard trust.
+            if os.environ.get('VERCEL')=='1':
+                for name in ('VERCEL_URL','VERCEL_BRANCH_URL','VERCEL_PROJECT_PRODUCTION_URL'):
+                    host=os.environ.get(name,'').lower()
+                    if re.fullmatch(r'[a-z0-9][a-z0-9.-]*\.vercel\.app',host):allowed.add('https://'+host)
             configured=os.environ.get('PUBLIC_BASE_URL','').strip().rstrip('/')
             if configured and settings.origin('PUBLIC_BASE_URL')==configured:allowed.add(configured)
             return parsed.scheme=='https' and value in allowed

@@ -37,7 +37,7 @@ def build(output):
         dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip())
     except subprocess.CalledProcessError:
         commit,dirty = 'unavailable',True
-    manifest = {'release_version':'2026.10.19-directory-rc4','package_date':'2026-10-19',
+    manifest = {'release_version':'2026.10.20-static-rc1','package_date':'2026-10-20',
                 'base_commit':commit,'worktree_modified':dirty,
                 'note':'Hashes identify exact packaged bytes; manifest excludes itself.',
                 'files':{n:hashlib.sha256(d).hexdigest() for n,d in sorted(files.items())}}
@@ -45,7 +45,7 @@ def build(output):
     output = Path(output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for name,data in sorted(files.items()):
-            entry=zipfile.ZipInfo(name,date_time=(2026,10,19,0,0,0))
+            entry=zipfile.ZipInfo(name,date_time=(2026,10,20,0,0,0))
             entry.compress_type=zipfile.ZIP_DEFLATED;entry.external_attr=0o100644 << 16
             archive.writestr(entry,data)
     with zipfile.ZipFile(output) as archive:
@@ -57,5 +57,5 @@ def build(output):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--output',default=str(ROOT/'private'/'STRATEVO-2026.10.19-directory-rc4.zip'))
+    parser=argparse.ArgumentParser();parser.add_argument('--output',default=str(ROOT/'private'/'STRATEVO-2026.10.20-static-rc1.zip'))
     build(parser.parse_args().output)

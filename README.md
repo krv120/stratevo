@@ -37,4 +37,4 @@ This is a **release candidate, not a deployment or compliance certification**. S
 
 ## Layout
 
-`app/` backend; `api/` Vercel entrypoint; `web/` runtime static assets; `scripts/` generators/package tools; `tests/` active and explicitly retired contracts; `validation/` reviewed release evidence. Run both content generators after template edits. Dependencies are deliberately small; no frontend framework/build is required.
+`app/` backend; `api/` Vercel entrypoint; `web/` runtime static assets; `scripts/` generators/package tools; `tests/` active and explicitly retired contracts; `validation/` reviewed release evidence. Run both content generators after template edits. Vercel runs `python3 scripts/build_static.py` to produce the public-only `public-site` output; public pages do not pass through the Python API router. Dependencies are deliberately small; no frontend framework/build is required.

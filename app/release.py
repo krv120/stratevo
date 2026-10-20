@@ -2,7 +2,7 @@
 import os
 import re
 
-RELEASE = '2026.10.19-routing-check-1'
+RELEASE = '2026.10.20-static-pages-1'
 
 
 def identity():

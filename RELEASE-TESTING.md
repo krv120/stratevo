@@ -35,8 +35,12 @@ Review `validation/` and `RELEASE-NOTES.md` for the final recorded results. Hist
 
 ## Exact archive
 
-`scripts/package_release.py --output /home/user/STRATEVO-2026.10.19-directory-rc4.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
+`scripts/package_release.py --output /home/user/STRATEVO-2026.10.20-static-rc1.zip` creates the complete candidate source archive with an internal SHA-256 manifest, excluding private files, credentials, runtime databases, tooling caches and dependencies. Extract into an isolated directory, verify `MANIFEST.json`, and run the same generators, active suite and browser checks against that extracted root. The GitHub commit archive is independently immutable but does not contain the ZIP-only generated manifest. Never package ignored `private/` evidence wholesale.
 
 ## Routing regression
 
 `--rewrite` simulates the configured Vercel rewrite before dispatch to the actual adapter. The former destination loses the original route and fails the regression (homepage, pages, assets and health). This is additional boundary coverage, not proof of a hosted deployment. The latest hosted URL returned JSON Not found; hosting validation remains required after redeployment.
+
+## Static build regression checks (current deployment)
+
+Run `python3 scripts/build_static.py`, then `PYTHONPATH=. .venv/bin/python tests/run_browser.py --static` and the same command with `--postgres`. These serve the built public output with the real API handler, exercising the direct function transport, not the former catch-all page rewrite. `test_static_output.py` verifies pages still work when the API page router is disabled and verifies the public artifact allowlist. `public-site` is a generated, ignored directory, recreated by Vercel from source.

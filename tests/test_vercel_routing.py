@@ -80,9 +80,9 @@ class RoutingEnvelopeTests(unittest.TestCase):
     def test_config_targets_existing_python_function_and_preserves_path(self):
         root = Path(__file__).resolve().parents[1]
         config = json.loads((root / 'vercel.json').read_text())
-        self.assertEqual(config['rewrites'], [
-            {'source': '/(.*)', 'destination': '/api/index.py?__stratevo_path=/$1'}
-        ])
+        self.assertEqual(config['outputDirectory'], 'public-site')
+        self.assertEqual(config['buildCommand'], 'python3 scripts/build_static.py')
+        self.assertFalse(any(rule['source']=='/(.*)' for rule in config['rewrites']))
         self.assertTrue((root / 'api/index.py').is_file())
         self.assertIn('api/index.py', config['functions'])
         from vercel_rewrite import destination
@@ -103,6 +103,17 @@ class RoutingEnvelopeTests(unittest.TestCase):
             self.assertIsNone(release.identity()['commit'])
         with patch.dict('os.environ', {'VERCEL_GIT_COMMIT_SHA': 'a'*40}):
             self.assertEqual(release.identity()['commit'], 'a'*40)
+
+    def test_only_configured_vercel_origins_are_accepted(self):
+        from api.index import handler
+        instance = handler.__new__(handler)
+        with patch.dict('os.environ', {'APP_ENV':'preview', 'VERCEL':'1', 'VERCEL_URL':'own-deployment.vercel.app'}, clear=True):
+            instance.headers = {'Origin':'https://own-deployment.vercel.app'}
+            self.assertTrue(instance.origin_allowed())
+            instance.headers = {'Origin':'https://foreign-deployment.vercel.app','Host':'foreign-deployment.vercel.app'}
+            self.assertFalse(instance.origin_allowed())
+            instance.headers = {'Origin':'https://own-deployment.vercel.app','Sec-Fetch-Site':'cross-site'}
+            self.assertFalse(instance.origin_allowed())
 
     def test_preserves_query_values_and_duplicates(self):
         from urllib.parse import parse_qsl, urlsplit

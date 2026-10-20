@@ -29,14 +29,14 @@ Before deployment, rehearse application rollback against a restored database. Pr
 - Optional TOTP means password/token strength and secret protection remain essential.
 - No live mail, booking completion, production database, DNS or deployment smoke test was performed for this candidate.
 
-## Catch-all routing contract
+## Static public site / Python API deployment (current)
 
-The repository root must be the Vercel project Root Directory; no frontend framework preset or static output directory is required. The Python entrypoint is `api/index.py` (`BaseHTTPRequestHandler`, not WSGI/ASGI).
+`vercel.json` sets Framework to Other (`null`), runs `python3 scripts/build_static.py`, and publishes `public-site`. Keep the repository root as the Vercel Root Directory. Do not override this output with `web`, `dist` or a framework preset. The build creates public HTML/assets only; source, templates, tests and private data are not copied into it.
 
-```json
-{"rewrites":[{"source":"/(.*)","destination":"/api/index.py?__stratevo_path=/$1"}]}
-```
+Public pages are no longer routed through Python. `/` is a real `index.html`; clean URLs resolve the other pages, with an explicit alias for `/supplier/account`. Public API aliases remain available, while generated pages call `/api/index.py` directly with an explicit API-path parameter. That function URL is excluded from rewrites, so browser requests do not rely on an edge rewrite preserving the original URI. Local dynamic previews remain compatible.
 
-The explicit `.py` destination targets the function file. The query envelope preserves the original route if the runtime supplies the rewritten destination as `self.path`. The adapter restores it before dispatch and preserves ordinary query values and POST bodies. Direct original request paths still work. A bare `/api/index.py` destination alone does not provide this fallback. Markdown links are not valid destination strings.
+The API permits exact Vercel deployment origins from VERCEL_URL/VERCEL_BRANCH_URL/VERCEL_PROJECT_PRODUCTION_URL when VERCEL=1, plus explicitly configured origins. It does not trust arbitrary Host or forwarding headers. Production still needs durable PostgreSQL, approved public origin, private admin credentials and the preceding launch checks.
 
-After your GitHub push, check the new deployment's `/`, `/supplier`, `/marketplace`, `/site.css`, and `/api/health`, then perform an authorized synthetic registration. The older commit-specific deployment URL does not establish whether the new revision works. Local rewrite simulations are regression checks, not evidence of a successful hosted build. No Vercel account connection is needed to apply these source changes.
+Generated SEO/robots/sitemap reflect the build environment. Keep indexing disabled until approved, and rebuild if launch/indexing settings change. Existing public-domain SEO defaults remain www.stratevo.online; do not claim that a Vercel preview URL is the canonical production domain.
+
+A successful build is not live verification. Open the new protected preview while signed in; check the homepage, supplier form, Marketplace, version endpoint and registration. Do not promote a deployment still returning an error. No production promotion is performed by this handoff.

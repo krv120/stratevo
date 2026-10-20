@@ -1,3 +1,15 @@
+# 2026.10.20-static-rc1 — remove Python catch-all page routing
+
+Public pages now build to a public-only static Vercel output. Python is reserved for API requests. Built pages call the explicit Python function URL directly, preserving API route/query information without relying on an edge rewrite. Public REST aliases remain supported. Registration still navigates automatically to the highlighted listing; the sign-in-link request form remains removed.
+
+Vercel-generated deployment origins are allowlisted by exact server environment value, never by user-supplied Host/forwarding headers. Private API authentication and origin checks remain enforced. No production data migration, domain change or production promotion is included.
+
+Current local suite: 100 tests. Static-output browser journeys cover both SQLite fallback and isolated PostgreSQL. One initial PostgreSQL browser attempt timed out waiting for the newly registered card; a subsequent run passed. This intermittent observation remains disclosed; it is not a zero-defect claim. Further final/extracted-source results accompany the handoff. Vercel's routing compiler confirms public page paths and the direct function path do not match the API rewrite.
+
+The supplied deployment screenshot remains genuine evidence of a hosted failure. The new architecture is not confirmed hosted-working until the owner opens the new protected preview and verifies it. Existing preview authentication is not removed automatically.
+
+--- Previous release history ---
+
 # 2026.10.19-directory-rc4 — direct registration to Marketplace
 
 Removed the sign-in-link request form and obsolete navigation anchors. Successful registration now navigates automatically to Marketplace with the published listing highlighted. Validation and failed saves retain the form; retry/idempotency protection remains. Active registration sessions can use My Supplier Account; expired-session access requires ownership-verified assistance.
