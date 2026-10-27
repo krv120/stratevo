@@ -27,9 +27,37 @@ Video generation adds an outbound dependency and real money, so it has its own p
 5. `vercel.json` permits `media-src` from `*.fal.media` and `storage.googleapis.com` so the private dashboard can play the clip. Public pages get the same header; it does not allow scripts or styles from those hosts.
 6. The first live generation, the fal billing cross-check and webhook delivery to the real host are **not** verified by the repository tests. Treat them as deployment acceptance steps.
 
+## Content pipeline (40 videos, captions, Buffer)
+
+The 40-video production line reuses the same constraints and adds one migration
+and one worker endpoint:
+
+1. Apply `migrations/009_content_pipeline.sql` before deploying the code that
+   reads the new tables (`content_series`, `content_ideas`, `media_assets`,
+   `content_publications`, `content_jobs`, `content_state`). It is additive and
+   uses `ADD COLUMN IF NOT EXISTS` for `video_jobs.idea_id`/`resolution`.
+2. `PUBLISHING_ENABLED=false` is the default and the hard off-switch. With it
+   false the worker still syncs fal jobs and renders captions but never calls
+   Buffer's `createPost`.
+3. `BUFFER_API_KEY` (personal key from publish.buffer.com) and `CRON_SECRET`
+   (≥32 characters, already used by the mail worker) belong in the hosting secret
+   manager, Production scope only.
+4. Buffer fetches media at publish time, so `PUBLIC_BASE_URL` must be the real
+   HTTPS origin; the worker refuses to submit without it. Captioned clips are
+   stored in PostgreSQL (`media_assets`) and served at `/media/<token>.mp4`.
+5. `/api/jobs/content-tick` must be called every few minutes. Vercel Hobby only
+   runs a cron once per day, so use cron-job.org or a Cloudflare cron trigger
+   (both free) plus the daily Vercel cron in `vercel.json` as a fallback.
+6. `requirements.txt` now installs `imageio-ffmpeg` (a ~80 MB static ffmpeg with
+   libass) inside the function. Verify the bundle stays under Vercel's unzipped
+   limit and that a caption render fits the 60 s `maxDuration` before enabling a
+   batch.
+7. Cost, model comparison, the exact first-test procedure and the remaining
+   production steps are in [docs/CONTENT-PIPELINE.md](docs/CONTENT-PIPELINE.md).
+
 ## Migration and rollback boundaries
 
-Migrations 001–007 run through `app/connections.py`. Tests cover isolated PostgreSQL bootstrap/concurrency and reinitialization, not a copy of production data. No destructive production migration has run. Existing legacy records remain; retired product workflows are not exposed by the new directory interface.
+Migrations 001–009 run through `app/connections.py`. Tests cover isolated PostgreSQL bootstrap/concurrency and reinitialization, not a copy of production data. No destructive production migration has run. Existing legacy records remain; retired product workflows are not exposed by the new directory interface.
 
 Before deployment, rehearse application rollback against a restored database. Prefer reverting the application deployment while retaining additive schema when compatibility has been verified. Do not drop directory tables or rewind the production database simply to roll back code: new registrations could be lost. If a data restore is required, pause writes, obtain separate authorization, preserve post-backup changes securely, restore to an isolated instance first, and reconcile before switching traffic. Record the exact previous deployment and restoration evidence.
 

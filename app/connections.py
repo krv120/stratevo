@@ -29,7 +29,7 @@ def _initialize(raw, postgres):
         raw.execute('CREATE SCHEMA IF NOT EXISTS stratevo_private')
         raw.execute('SET LOCAL search_path TO stratevo_private')
         raw.execute('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, digest TEXT NOT NULL)')
-        for path in sorted(MIGRATIONS.glob('00[1-8]_*.sql')):
+        for path in sorted(MIGRATIONS.glob('00[1-9]_*.sql')):
             text=path.read_text();digest=hashlib.sha256(text.encode()).hexdigest()
             row=raw.execute('SELECT digest FROM schema_migrations WHERE name=%s',(path.name,)).fetchone()
             previous=(row['digest'] if isinstance(row,dict) else row[0]) if row else None
@@ -38,7 +38,7 @@ def _initialize(raw, postgres):
                 text=re.sub(r'^\s*(?:BEGIN|COMMIT);\s*$', '', text, flags=re.M)
                 raw.execute(text,prepare=False)
                 raw.execute('INSERT INTO schema_migrations VALUES (%s,%s) ON CONFLICT(name) DO UPDATE SET digest=excluded.digest',(path.name,digest))
-        if len(list(MIGRATIONS.glob('00[1-8]_*.sql')))!=8:raise RuntimeError('Required migrations missing from deployment')
+        if len(list(MIGRATIONS.glob('00[1-9]_*.sql')))!=9:raise RuntimeError('Required migrations missing from deployment')
         raw.execute('ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY')
         raw.execute('REVOKE ALL ON schema_migrations FROM PUBLIC')
         for role in ('anon','authenticated'):
@@ -48,14 +48,22 @@ def _initialize(raw, postgres):
         from app import suppliers, marketplace, intake, controls, operations
         raw.execute('BEGIN IMMEDIATE')
         schema=suppliers.SCHEMA+marketplace.SCHEMA+intake.SCHEMA+controls.SCHEMA+operations.SCHEMA
-        from app import listings, directory, video
-        schema+=listings.SCHEMA+directory.SCHEMA+video.SCHEMA
+        from app import listings, directory, video, content, media
+        schema+=listings.SCHEMA+directory.SCHEMA+video.SCHEMA+content.SCHEMA+media.SCHEMA
         # Upgrade legacy outbox shapes before dependent indexes are created.
         exists=raw.execute("SELECT 1 FROM sqlite_master WHERE name='outbox'").fetchone()
         if exists:
             columns={r[1] for r in raw.execute('PRAGMA table_info(outbox)')}
             for column in ('attempts','claimed_until'):
                 if column not in columns:raw.execute('ALTER TABLE outbox ADD COLUMN '+column+' BIGINT NOT NULL DEFAULT 0')
+        # Phase-2 content pipeline links a paid video job to its idea and model
+        # resolution. Existing local databases are upgraded in place; the
+        # PostgreSQL path does the same in migrations/009.
+        exists=raw.execute("SELECT 1 FROM sqlite_master WHERE name='video_jobs'").fetchone()
+        if exists:
+            columns={r[1] for r in raw.execute('PRAGMA table_info(video_jobs)')}
+            for column in ('idea_id','resolution'):
+                if column not in columns:raw.execute("ALTER TABLE video_jobs ADD COLUMN "+column+" TEXT NOT NULL DEFAULT ''")
         for statement in schema.split(';'):
             if statement.strip():raw.execute(statement)
     raw.commit()

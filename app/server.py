@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from app import suppliers, connections, marketplace, intake, seo, settings, controls, maintenance
-from app import engine_http, mail_policy, listings, directory_http, release, video
+from app import engine_http, mail_policy, listings, directory_http, release, video, content, media, captions
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = defaultdict(deque)
@@ -78,6 +78,72 @@ class Handler(BaseHTTPRequestHandler):
         except suppliers.WorkflowError as error:return self.send(error.status,{'error':str(error),'field':getattr(error,'field',None)})
         except Exception:return self.send(503,{'error':'Worker unavailable; saved jobs remain queued'})
 
+    def content_job(self):
+        """Worker tick for the content pipeline. Bearer CRON_SECRET only."""
+        secret=os.environ.get('CRON_SECRET','')
+        supplied=self.headers.get('Authorization','')
+        if len(secret)<32 or not hmac.compare_digest(supplied.encode(),('Bearer '+secret).encode()):
+            return self.send(401,{'error':'Worker authorization required'})
+        try:
+            return self.send(200,content.tick('cron',max_caption=1,max_publish=4,sync_jobs=20))
+        except suppliers.WorkflowError as error:
+            return self.send(error.status,{'error':str(error)})
+        except Exception:
+            return self.send(503,{'error':'Worker tick failed; queued jobs stay leased and will retry.'})
+
+    def public_media(self, route):
+        """Serve a captioned video at an unguessable token. Public by design:
+        Buffer fetches this URL at publish time with no credentials."""
+        name=route[len('/media/'):]
+        token=name[:-4] if name.endswith('.mp4') else ''
+        if not token or '/' in token:return self.send(404,{'error':'Not found'})
+        try:row=media.get(token)
+        except Exception:return self.send(503,{'error':'Media storage is unavailable'})
+        if not row:return self.send(404,{'error':'Not found'})
+        if row['external_url']:
+            return self.send(302,b'',headers={'Location':row['external_url'],'Cache-Control':'no-store'})
+        body=row['body']
+        if not body:return self.send(404,{'error':'Not found'})
+        start,end=0,len(body)-1
+        partial=False
+        header=self.headers.get('Range','')
+        if header.startswith('bytes='):
+            try:
+                first,_,last=header[6:].partition('-')
+                if first:
+                    start=int(first);end=int(last) if last else end
+                elif last:
+                    start=max(0,len(body)-int(last))
+                if start>end or start>=len(body) or end-start>16*1024*1024:raise ValueError()
+                end=min(end,len(body)-1);partial=True
+            except ValueError:
+                return self.send(416,{'error':'Range not satisfiable'})
+        chunk=body[start:end+1]
+        self.send_response(206 if partial else 200)
+        self.send_header('Content-Type',row['content_type'] or 'video/mp4')
+        self.send_header('Content-Length',str(len(chunk)))
+        self.send_header('Accept-Ranges','bytes')
+        if partial:self.send_header('Content-Range','bytes %d-%d/%d'%(start,end,len(body)))
+        self.send_header('Cache-Control','public, max-age=31536000, s-maxage=31536000, immutable')
+        self.send_header('ETag','"'+row['sha256'][:32]+'"')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('Referrer-Policy','no-referrer')
+        self.send_header('X-Robots-Tag','noindex, nofollow')
+        try:
+            self.end_headers()
+            if getattr(self,'command','GET')!='HEAD':self.wfile.write(chunk)
+        except (BrokenPipeError,ConnectionResetError,ssl.SSLEOFError):
+            self.close_connection=True
+
+    def public_base(self):
+        """Origin used to build absolute media URLs for the admin preview."""
+        try:return settings.public_origin()
+        except ValueError:
+            if settings.environment() in ('local','test'):
+                host=self.headers.get('Host','')
+                if re.fullmatch(r'[A-Za-z0-9.:\-]{1,120}',host):return 'http://'+host
+            return ''
+
     def authorized(self):
         token = os.environ.get('APP_ACCESS_TOKEN', '')
         supplied = self.headers.get('Authorization', '')
@@ -101,6 +167,8 @@ class Handler(BaseHTTPRequestHandler):
         aliases={'/home':'/','/supplier.html':'/supplier','/supplier-account':'/supplier/account','/supplier-account.html':'/supplier/account','/marketplace.html':'/marketplace','/inquiry.html':'/inquiry','/assessment.html':'/assessment','/rfq':'/assessment','/supplier-portal':'/supplier/account','/business-information':'/terms#operator'}
         if route in aliases:return self.send(308,b'',headers={'Location':aliases[route]})
         if route=='/api/jobs/mail':return self.mail_job()
+        if route=='/api/jobs/content-tick':return self.content_job()
+        if route.startswith('/media/'):return self.public_media(route)
         if route.startswith('/api/marketplace/') or route == '/api/marketplace':
             return self.market_get(route)
         if route.startswith('/api/admin/') or route.startswith('/api/supplier/'):
@@ -115,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:return self.send(503,{'ok':False,'database':'unavailable','mail':'not_probed'})
         pages={'/':'home','/supplier':'supplier','/admin':'admin','/access':'access','/portal':'portal','/marketplace':'marketplace','/supplier/account':'supplier-account','/inquiry':'inquiry','/assessment':'assessment','/methodology':'methodology','/privacy':'privacy','/cookies':'cookies','/terms':'terms'}
         files={route:(name+'.html','text/html; charset=utf-8') for route,name in pages.items()}
-        for name in ('site','market','manager','operations','storage','navigation','ui','comparison','video'):
+        for name in ('site','market','manager','operations','storage','navigation','ui','comparison','video','content'):
             files['/'+name+'.js']=(name+'.js','application/javascript')
         files.update({'/site.css':('site.css','text/css'),'/favicon.svg':('favicon.svg','image/svg+xml'),'/images/stratevo-social.jpg':('images/stratevo-social.jpg','image/jpeg'),'/fonts/inter-latin.woff2':('fonts/inter-latin.woff2','font/woff2'),'/fonts/inter-greek.woff2':('fonts/inter-greek.woff2','font/woff2')})
         if route not in files:
@@ -172,6 +240,7 @@ class Handler(BaseHTTPRequestHandler):
         if route in engine_http.POSTS:return engine_http.post(self,route)
         if route=='/api/suppliers':return self.market_post('/api/marketplace/register')
         if route=='/api/jobs/mail':return self.mail_job()
+        if route=='/api/jobs/content-tick':return self.content_job()
         if route == '/api/inquiries':
             return self.inquiry_post()
         if route.startswith('/api/marketplace/'):
@@ -310,6 +379,16 @@ class Handler(BaseHTTPRequestHandler):
                     query=parse_qs(urlparse(self.path).query)
                     return self.send(200,intake.list_inquiries(query.get('status',['all'])[0],query.get('offset',['0'])[0]))
                 if route == '/api/admin/video/status':return self.send(200,video.status_payload())
+                if route == '/api/admin/content/overview':
+                    return self.send(200,content.overview(parse_qs(urlparse(self.path).query).get('series_id',[''])[0],
+                                                           base=self.public_base()))
+                if route == '/api/admin/content/plugins':
+                    return self.send(200,{'publishing':content.publishing_status(),'worker':content.worker_status(),
+                                          'ffmpeg':captions.ffmpeg_missing() or 'available'})
+                if route == '/api/admin/content/estimate':
+                    query=parse_qs(urlparse(self.path).query)
+                    return self.send(200,content.estimate(query.get('model',[''])[0],
+                        query.get('duration',['10'])[0],query.get('resolution',[''])[0],query.get('count',['40'])[0]))
                 if route == '/api/admin/video/jobs':
                     return self.send(200,video.jobs(parse_qs(urlparse(self.path).query).get('offset',['0'])[0]))
                 if route == '/api/admin/reports':return self.send(200,controls.reports(parse_qs(urlparse(self.path).query).get('offset',['0'])[0]))
@@ -339,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error':'Supplier service is temporarily unavailable.'})
 
     def workflow_post(self, route):
-        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions','/api/admin/video/jobs','/api/admin/video/sync','/api/admin/video/retry','/api/admin/video/cancel')
+        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions','/api/admin/video/jobs','/api/admin/video/sync','/api/admin/video/retry','/api/admin/video/cancel','/api/admin/content/series','/api/admin/content/decide','/api/admin/content/regenerate','/api/admin/content/generate','/api/admin/content/schedule','/api/admin/content/publish','/api/admin/content/tick','/api/admin/content/smoke')
         if route not in allowed: return self.send(404, {'error':'Not found'})
         if not self.origin_allowed():
             return self.send(403, {'error':'Origin not allowed'})
@@ -369,6 +448,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, suppliers.logout(self.session_token()), headers=self.session_cookie(''))
             elif route == '/api/admin/video/jobs':result=video.submit(data,identity['actor'])
             elif route == '/api/admin/video/sync':result={'job':video.sync(data.get('id'))}
+            elif route == '/api/admin/content/series':result=content.create_series(data,identity['actor'])
+            elif route == '/api/admin/content/decide':result=content.decide(data,identity['actor'])
+            elif route == '/api/admin/content/regenerate':result=content.regenerate(data,identity['actor'])
+            elif route == '/api/admin/content/generate':result=content.submit_batch(data,identity['actor'])
+            elif route == '/api/admin/content/schedule':result=content.plan_schedule(data)
+            elif route == '/api/admin/content/publish':result=content.submit_publication(data.get('publication_id'))
+            elif route == '/api/admin/content/tick':result=content.tick('admin:'+identity['actor'],max_caption=1,max_publish=4)
+            elif route == '/api/admin/content/smoke':result=content.smoke(identity['actor'])
             elif route == '/api/admin/video/retry':result=video.retry(data,identity['actor'])
             elif route == '/api/admin/video/cancel':result=video.cancel(data)
             elif route == '/api/admin/suspend':result=controls.suspension(data,identity['actor'])

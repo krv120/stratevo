@@ -25,7 +25,7 @@ def build():
         (output / destination).write_text(source)
         allowed.add(destination)
     for name in ['site.css', 'favicon.svg'] + [n + '.js' for n in
-                 ['ui', 'navigation', 'site', 'market', 'manager', 'operations', 'storage', 'comparison', 'video']] + [
+                 ['ui', 'navigation', 'site', 'market', 'manager', 'operations', 'storage', 'comparison', 'video', 'content']] + [
                  'fonts/inter-latin.woff2', 'fonts/inter-greek.woff2', 'images/stratevo-social.jpg']:
         target = output / name
         target.parent.mkdir(parents=True, exist_ok=True)

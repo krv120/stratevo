@@ -33,6 +33,22 @@ The local server binds to `0.0.0.0:8000`. Set your own strong admin password/tok
 
 `/admin` now includes a private Content Studio panel that submits one validated text-to-video job to fal.ai's official Queue REST API, tracks it asynchronously (status polling plus a signed completion webhook), stores the request id, video URL and computed cost in `video_jobs`, and refuses to submit when the configured monthly spending limit would be exceeded. `FAL_KEY` is a server-side environment variable only; the browser never receives it. Nothing is published and no batch generation exists. Setup, the exact key location, cost semantics and verified/unverified boundaries are in [docs/FAL-VIDEO-STUDIO.md](docs/FAL-VIDEO-STUDIO.md).
 
+## Content pipeline (40 videos, captions, scheduling)
+
+`/admin` also contains a **Production line** panel that writes 40 distinct
+faceless vertical concepts (hook, script, prompt, TikTok and Instagram copy),
+queues approved ones through the budget-checked fal.ai integration, burns a hook
+and word-timed subtitles into each clip at 1080x1920 with ffmpeg, stores the
+result behind an unguessable `/media/<token>.mp4` URL, plans 30 days of
+Europe/Athens slots and submits them to TikTok/Instagram through Buffer's GraphQL
+API. `BUFFER_API_KEY` and `FAL_KEY` stay server-side; `PUBLISHING_ENABLED=false`
+prevents any post from being sent; nothing is marked scheduled until Buffer
+returns a post id. A lease-based worker endpoint
+(`/api/jobs/content-tick`, `CRON_SECRET`) keeps the pipeline moving with no open
+browser. Costs, the cheapest suitable model, deployment, the one-video live test
+and the remaining production steps are in
+[docs/CONTENT-PIPELINE.md](docs/CONTENT-PIPELINE.md).
+
 ## Persistence and release status
 
 Use durable PostgreSQL for real submissions, with `STRICT_PERSISTENT_DB=true`. SQLite is useful locally; serverless `/tmp` SQLite is ephemeral and instance-local. The clean interface does not change that limitation. Migrations are additive and preserve historical business data; new document uploads remain disabled.

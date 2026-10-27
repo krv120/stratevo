@@ -1,5 +1,12 @@
 # Content Studio — fal.ai video generation
 
+> Phase 2 note: the default model is now **MiniMax H3 Max Turbo**
+> (768P, 9:16) because it is the cheapest suitable vertical model; Kling 2.5
+> Turbo Pro and Kling 3.0 Pro remain selectable. Resolution-dependent pricing is
+> read from the reviewed table and the *list* price is used for budgeting. The
+> 40-video production line, captions, Buffer scheduling and the worker are
+> documented in [CONTENT-PIPELINE.md](CONTENT-PIPELINE.md).
+
 This document describes the fal.ai integration that exists in this repository,
 where the key goes, what was actually verified, and what could not be verified
 from the Arena sandbox.

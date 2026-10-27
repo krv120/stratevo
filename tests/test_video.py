@@ -111,7 +111,8 @@ class VideoStudioTests(unittest.TestCase):
         self.assertEqual(payload['budget']['limit_usd'], 5.0)
         self.assertEqual(payload['budget']['remaining_usd'], 5.0)
         self.assertTrue(payload['webhook_configured'])
-        self.assertEqual([entry['id'] for entry in payload['models']], ['kling-2.5-turbo-pro', 'kling-3-pro'])
+        self.assertEqual([entry['id'] for entry in payload['models']],
+                         ['minimax-h3-max-turbo', 'kling-2.5-turbo-pro', 'kling-3-pro'])
         self.assertNotIn(KEY, body.decode())
         self.assertNotIn('Authorization', body.decode())
 
@@ -144,7 +145,8 @@ class VideoStudioTests(unittest.TestCase):
         cookie = self.admin()
         for changes, field in cases:
             with self.subTest(field=field):
-                payload = {'prompt': 'A slow push-in on a matte aluminium bracket.', 'client_key': secrets.token_hex(16), **changes}
+                payload = {'prompt': 'A slow push-in on a matte aluminium bracket.', 'model': 'kling-2.5-turbo-pro',
+                           'client_key': secrets.token_hex(16), **changes}
                 code, body, _ = self.http('/api/admin/video/jobs', payload, cookie=cookie)
                 self.assertEqual(code, 400)
                 self.assertEqual(json.loads(body)['field'], field)

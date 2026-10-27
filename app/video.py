@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS video_jobs (
  cost_basis TEXT NOT NULL DEFAULT '',
  currency TEXT NOT NULL DEFAULT 'USD',
  created_by TEXT NOT NULL DEFAULT '',
+ idea_id TEXT NOT NULL DEFAULT '',
+ resolution TEXT NOT NULL DEFAULT '',
  created_at BIGINT NOT NULL,
  updated_at BIGINT NOT NULL,
  completed_at BIGINT
@@ -56,18 +58,40 @@ CREATE TABLE IF NOT EXISTS video_jobs (
 CREATE INDEX IF NOT EXISTS video_jobs_date ON video_jobs(created_at DESC, id);
 CREATE INDEX IF NOT EXISTS video_jobs_request ON video_jobs(fal_request_id);
 CREATE INDEX IF NOT EXISTS video_jobs_client ON video_jobs(client_key);
+CREATE INDEX IF NOT EXISTS video_jobs_idea ON video_jobs(idea_id);
 '''
 
-# Endpoints and their documented prices. The live pricing API is preferred at
-# runtime; these values are the reviewed fallback and are shown to the operator.
+# Endpoints and their documented prices. For models whose price depends on
+# resolution the reviewed table is authoritative (the pricing API returns one
+# unit price per endpoint and would under-estimate a higher resolution). For
+# fixed-price models the live pricing API is preferred at runtime.
 # Sources (checked 2026-10-27):
 #   https://fal.ai/pricing
+#   https://fal.ai/models/minimax/h3-max-turbo/text-to-video
 #   https://fal.ai/models/fal-ai/kling-video/v2.5-turbo/pro/text-to-video/api
 #   https://fal.ai/models/fal-ai/kling-video/v3/pro/text-to-video/api
+# MiniMax H3 Max Turbo carries a promotional discount until 2026-10-31:
+#   480P $0.01625/s, 768P $0.026/s, 1080P $0.052/s  -> list $0.025 / $0.04 / $0.08
+# The *list* price is used for budgeting so a promo ending cannot overspend.
 MODELS = {
+    'minimax-h3-max-turbo': {
+        'endpoint': 'minimax/h3-max-turbo/text-to-video',
+        'label': 'MiniMax H3 Max Turbo',
+        'provider': 'minimax',
+        'durations': tuple(range(3, 16)),
+        'aspect_ratios': ('9:16', '16:9', '1:1', '3:4', '4:3', '21:9'),
+        'resolutions': ('480P', '768P', '1080P'),
+        'default_resolution': '768P',
+        'resolution_prices': {'480P': 0.025, '768P': 0.04, '1080P': 0.08},
+        'promo_prices': {'480P': 0.01625, '768P': 0.026, '1080P': 0.052},
+        'promo_ends': '2026-10-31',
+        'per_second_usd': 0.04,
+        'docs': 'https://fal.ai/models/minimax/h3-max-turbo/text-to-video',
+    },
     'kling-2.5-turbo-pro': {
         'endpoint': 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video',
         'label': 'Kling 2.5 Turbo Pro',
+        'provider': 'kling',
         'durations': (5, 10),
         'aspect_ratios': ('16:9', '9:16', '1:1'),
         'per_second_usd': 0.07,
@@ -76,13 +100,14 @@ MODELS = {
     'kling-3-pro': {
         'endpoint': 'fal-ai/kling-video/v3/pro/text-to-video',
         'label': 'Kling 3.0 Pro',
+        'provider': 'kling',
         'durations': tuple(range(3, 16)),
         'aspect_ratios': ('16:9', '9:16', '1:1'),
         'per_second_usd': 0.14,
         'docs': 'https://fal.ai/models/fal-ai/kling-video/v3/pro/text-to-video/api',
     },
 }
-DEFAULT_MODEL = 'kling-2.5-turbo-pro'
+DEFAULT_MODEL = 'minimax-h3-max-turbo'
 TERMINAL = ('completed', 'failed', 'canceled', 'submit_failed')
 # Statuses that release their reservation because fal.ai did not bill the job.
 RELEASED = ('failed', 'canceled', 'submit_failed')
@@ -166,16 +191,34 @@ def validate(data):
     aspect = data.get('aspect_ratio') or entry['aspect_ratios'][0]
     if aspect not in entry['aspect_ratios']:
         raise s.WorkflowError('Choose a supported aspect ratio.', 400, field='aspect_ratio')
+    resolution = data.get('resolution') or entry.get('default_resolution', '')
+    if entry.get('resolutions'):
+        if resolution not in entry['resolutions']:
+            raise s.WorkflowError('Choose a supported resolution.', 400, field='resolution')
+    else:
+        resolution = ''
     key = data.get('client_key') or ''
     if not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', str(key)):
         raise s.WorkflowError('Refresh the page and try again (invalid request key).', 400, field='client_key')
     return {'model': name, 'prompt': prompt, 'negative_prompt': negative,
-            'duration_seconds': duration, 'aspect_ratio': aspect, 'client_key': key}
+            'duration_seconds': duration, 'aspect_ratio': aspect, 'client_key': key,
+            'resolution': resolution}
 
 
-def _price(name):
+def _price(name, resolution=''):
     """Return a price dict with a source label, or None when cost is unknowable."""
     entry = _model(name)
+    prices = entry.get('resolution_prices')
+    if prices:
+        # Resolution-dependent pricing: budget on the *list* price, never the
+        # promotional rate, so an expiring discount cannot overspend the limit.
+        unit = prices.get(resolution or entry.get('default_resolution'))
+        if not unit:
+            return None
+        return {'per_second': unit, 'source': 'pinned_price_table',
+                'checked': PRICE_CHECKED, 'docs': entry['docs'],
+                'promotional': entry.get('promo_prices', {}).get(resolution or entry.get('default_resolution')),
+                'promo_ends': entry.get('promo_ends', '')}
     live = fal.pricing(entry['endpoint'])
     if live:
         live['checked'] = 'live'
@@ -222,6 +265,14 @@ def _ensure_ready():
 
 
 def _payload(fields, entry):
+    if entry.get('provider') == 'minimax':
+        # Schema: prompt (required), duration seconds (number), resolution,
+        # prompt_expansion_mode (required), aspect_ratio.
+        return {'prompt': fields['prompt'], 'duration': float(fields['duration_seconds']),
+                'resolution': fields.get('resolution') or entry.get('default_resolution'),
+                'aspect_ratio': fields['aspect_ratio'],
+                'prompt_expansion_mode': 'balanced',
+                'enable_safety_checker': True}
     body = {'prompt': fields['prompt'], 'duration': str(fields['duration_seconds']),
             'aspect_ratio': fields['aspect_ratio'], 'enable_safety_checker': True}
     if fields['negative_prompt']:
@@ -231,13 +282,13 @@ def _payload(fields, entry):
     return body
 
 
-def submit(data, actor='operator', *, retried_from='', attempt=1):
+def submit(data, actor='operator', *, retried_from='', attempt=1, idea_id=''):
     fields = validate(data)
     entry = _model(fields['model'])
     rules = limits()
     _ensure_ready()
     s.rate_limit('video-submit:' + s.digest(str(actor)), rules['jobs_per_hour'], 3600)
-    price = _price(fields['model'])
+    price = _price(fields['model'], fields['resolution'])
     if not price:
         raise s.WorkflowError('Pricing could not be established, so the spending limit cannot be enforced. Generation was blocked.', 503)
     cost = estimate(price, fields['duration_seconds'])
@@ -258,12 +309,12 @@ def submit(data, actor='operator', *, retried_from='', attempt=1):
             raise s.WorkflowError('The spending limit would be exceeded: $' + f'{spent:.2f}' + ' of $' + f"{rules['spend_limit_usd']:.2f}" + ' is committed this month. No generation was submitted.', 409)
         db.execute(
             'INSERT INTO video_jobs (id,client_key,model,endpoint,prompt,negative_prompt,duration_seconds,aspect_ratio,'
-            'status,attempts,retried_from,unit_price_usd,cost_usd,cost_basis,created_by,created_at,updated_at) '
-            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            'status,attempts,retried_from,unit_price_usd,cost_usd,cost_basis,created_by,created_at,updated_at,idea_id,resolution) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             (identifier, fields['client_key'], fields['model'], entry['endpoint'], fields['prompt'],
              fields['negative_prompt'], fields['duration_seconds'], fields['aspect_ratio'], 'reserved',
              int(attempt), retried_from, price.get('per_second', price.get('per_video', 0.0)),
-             cost, price['source'], str(actor)[:100], now, now))
+             cost, price['source'], str(actor)[:100], now, now, idea_id, fields['resolution']))
 
     try:
         response = fal.submit(entry['endpoint'], _payload(fields, entry), webhook_url=webhook_url())
@@ -400,7 +451,8 @@ def retry(data, actor):
         key = ('r' + s.digest(job['client_key'] + str(attempt)))[:32]
     return submit({'prompt': job['prompt'], 'negative_prompt': job['negative_prompt'], 'model': job['model'],
                    'duration_seconds': job['duration_seconds'], 'aspect_ratio': job['aspect_ratio'],
-                   'client_key': key}, actor, retried_from=job['id'], attempt=attempt)
+                   'resolution': row_field(job, 'resolution'), 'client_key': key}, actor,
+                  retried_from=job['id'], attempt=attempt, idea_id=row_field(job, 'idea_id'))
 
 
 def cancel(data):
@@ -454,6 +506,7 @@ def public(row):
         'fal_request_id': row['fal_request_id'] or '', 'video_url': row['video_url'] or '',
         'video_content_type': row['video_content_type'] or '', 'error': row['error_message'] or '',
         'attempts': row['attempts'], 'retried_from': row['retried_from'] or '',
+        'resolution': row_field(row, 'resolution'), 'idea_id': row_field(row, 'idea_id'),
         'cost_usd': round(float(row['cost_usd'] or 0), 4), 'currency': row['currency'],
         'cost_basis': row['cost_basis'], 'created_at': row['created_at'],
         'updated_at': row['updated_at'], 'completed_at': row['completed_at'],
@@ -461,11 +514,53 @@ def public(row):
     }
 
 
+ACTIVE = ('reserved', 'queued', 'in_progress', 'retrieving', 'canceling')
+
+
+def row_field(row, key, default=''):
+    """Read a column from a sqlite3.Row or a psycopg dict row."""
+    try:
+        value = row[key]
+    except (IndexError, KeyError):
+        return default
+    return default if value is None else value
+
+
+def find(identifier):
+    """Return one job row, or None (used by the pipeline)."""
+    with s.database() as db:
+        return db.execute('SELECT * FROM video_jobs WHERE id=?', (identifier,)).fetchone()
+
+
+def active_jobs(limit=25):
+    placeholders = ','.join('?' for _ in ACTIVE)
+    with s.database() as db:
+        return db.execute('SELECT id FROM video_jobs WHERE status IN (' + placeholders + ') '
+                          'ORDER BY updated_at LIMIT ?', ACTIVE + (int(limit),)).fetchall()
+
+
+def sync_all(limit=25):
+    """Poll every active job once. Returns {job_id: status} for the pipeline."""
+    results, errors = {}, {}
+    for row in active_jobs(limit):
+        identifier = row['id']
+        try:
+            results[identifier] = sync(identifier)['status']
+        except (s.WorkflowError, fal.FalError) as error:
+            errors[identifier] = str(error)
+    return {'synced': results, 'errors': errors}
+
+
 def status_payload():
     entry_models = []
     for name, entry in MODELS.items():
         entry_models.append({'id': name, 'label': entry['label'], 'endpoint': entry['endpoint'],
                              'durations': list(entry['durations']), 'aspect_ratios': list(entry['aspect_ratios']),
+                             'resolutions': list(entry.get('resolutions', ())),
+                             'default_resolution': entry.get('default_resolution', ''),
+                             'resolution_prices': entry.get('resolution_prices', {}),
+                             'promo_prices': entry.get('promo_prices', {}),
+                             'promo_ends': entry.get('promo_ends', ''),
                              'documented_per_second_usd': entry['per_second_usd'], 'docs': entry['docs']})
     return {
         'configured': fal.configured(), 'key_variable': 'FAL_KEY',

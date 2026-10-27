@@ -28,8 +28,11 @@ class StubServer:
         self.errors = {}
         self.results = {}
         self.cancel_status = 200
+        # The pricing endpoint reports one unit price per endpoint. Resolution
+        # dependent models are priced from the reviewed table in app.video.
         self.default_pricing = {'fal-ai/kling-video/v2.5-turbo/pro/text-to-video': 0.07,
-                                'fal-ai/kling-video/v3/pro/text-to-video': 0.14}
+                                'fal-ai/kling-video/v3/pro/text-to-video': 0.14,
+                                'minimax/h3-max-turbo/text-to-video': 0.04}
         self.pricing = dict(self.default_pricing)
         self.pricing_fail = False
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
@@ -75,7 +78,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path.startswith('/fal-ai/'):
+        if parsed.path.startswith(('/fal-ai/', '/minimax/')):
             if not self._authorized():
                 return self._send(401, {'detail': 'invalid key'})
             payload = self._read()
