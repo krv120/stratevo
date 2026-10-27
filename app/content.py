@@ -327,7 +327,7 @@ def overview(series_id=None, base=''):
             'cost': cost_plan(series), 'publications': [dict(row) for row in publications],
             'publishing': publishing_status(), 'worker': worker_status(),
             'nightly': nightly_status(series), 'voice': voice.status(), 'cta': cta_text(),
-            'default_model': default_model(),
+            'default_model': default_model(), 'renderer': renderer_name(series),
             'media': media.stats()}
 
 
