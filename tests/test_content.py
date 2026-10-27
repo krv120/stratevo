@@ -298,6 +298,12 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(payload['audio_setting']['format'], 'mp3')
         self.assertIn('text', voice._payload('kokoro', 'hello', None))
 
+    def test_narration_fits_the_clip_length(self):
+        long_text = 'one two three four five six seven eight nine ten ' * 4
+        self.assertLessEqual(len(voice.fit(long_text, 10).split()), 26)
+        self.assertLessEqual(len(voice.fit(long_text, 5).split()), 13)
+        self.assertEqual(voice.fit('Short line.', 10), 'Short line.')
+
     def test_narration_script_is_hook_plus_body(self):
         idea = {'hook': 'Nobody warns you about fast quotes.', 'script': 'Ask for the sampling plan first.'}
         self.assertEqual(content.narration_script(idea),

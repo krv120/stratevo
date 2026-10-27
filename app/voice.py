@@ -141,6 +141,26 @@ def synthesize(text, *, idea_id='', model=None, voice=None):
             'model': name, 'voice': voice or voice_id()}
 
 
+def fit(text, seconds, words_per_second=2.6):
+    """Trim a script so the read finishes inside the clip.
+
+    MiniMax at speed 1.02 speaks roughly 2.6 words a second; a 10 s clip can
+    hold about 26 words. Without this the last sentence is cut off by ``-t``.
+    """
+    words = (text or '').split()
+    limit = max(4, int(float(seconds or 0) * words_per_second))
+    if len(words) <= limit:
+        return ' '.join(words)
+    kept = words[:limit]
+    # Prefer ending on a sentence boundary when one is close to the limit.
+    joined = ' '.join(kept)
+    for mark in ('. ', '? ', '! '):
+        index = joined.rfind(mark)
+        if index >= len(joined) * 0.55:
+            return joined[:index + 1]
+    return joined.rstrip(',;:-') + '.'
+
+
 def _payload(name, text, voice):
     if name == 'kokoro':
         return {'text': text, 'voice': (voice or os.environ.get('KOKORO_VOICE') or 'af_heart'),

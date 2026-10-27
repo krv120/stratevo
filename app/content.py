@@ -425,7 +425,8 @@ def render_captions(idea_id):
     narration, voice_note = b'', ''
     if voice.configured():
         try:
-            spoken = voice.synthesize(narration_script(idea), idea_id=idea_id)
+            spoken = voice.synthesize(voice.fit(narration_script(idea), job['duration_seconds']),
+                                     idea_id=idea_id)
             narration = spoken['bytes']
         except (voice.VoiceError, s.WorkflowError) as error:
             voice_note = str(error)[:300]
