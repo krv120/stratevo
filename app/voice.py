@@ -17,6 +17,7 @@ unless ``VOICE_ENABLED=true`` and capped by ``CONTENT_VOICE_LIMIT_USD``.
 """
 import json
 import os
+import re
 import time
 import urllib.request
 from urllib.parse import urlsplit
@@ -161,9 +162,22 @@ def fit(text, seconds, words_per_second=2.6):
     return joined.rstrip(',;:-') + '.'
 
 
+PAUSE_TAG = re.compile(r'<#\s*[\d.]+\s*#>')
+
+
+def strip_pauses(text):
+    """Remove MiniMax ``<#0.4#>`` pause tags for models that would speak them.
+
+    Kokoro phonemises whatever it is given, so an un-stripped tag becomes
+    "less than hash zero point four hash greater than" in the audio.
+    """
+    cleaned = PAUSE_TAG.sub(' ', text or '')
+    return ' '.join(cleaned.split())
+
+
 def _payload(name, text, voice):
     if name == 'kokoro':
-        return {'text': text, 'voice': (voice or os.environ.get('KOKORO_VOICE') or 'af_heart'),
+        return {'text': strip_pauses(text), 'voice': (voice or os.environ.get('KOKORO_VOICE') or 'af_heart'),
                 'speed': 1.05}
     return {'prompt': text, 'language_boost': 'English', 'output_format': 'url',
             'voice_setting': {'voice_id': voice or voice_id(), 'speed': 1.02, 'vol': 1.0,

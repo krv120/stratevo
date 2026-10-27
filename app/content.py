@@ -701,6 +701,99 @@ def plan_schedule(data):
             'message': 'Planned locally. Nothing is scheduled in Buffer until the worker submits it and Buffer returns a post id.'}
 
 
+def auto_schedule_enabled():
+    return os.environ.get('CONTENT_AUTO_SCHEDULE', 'true').strip().lower() != 'false'
+
+
+def auto_schedule_ahead():
+    """How many posts should be sitting planned/confirmed per platform."""
+    try:
+        value = int(os.environ.get('CONTENT_AUTO_SCHEDULE_AHEAD', '4'))
+    except ValueError:
+        value = 4
+    return max(1, min(value, 20))
+
+
+def schedule_next(series_id, platforms=('tiktok', 'instagram'), days=PLAN_DAYS, limit=None):
+    """Append slots for rendered ideas that have no publication yet.
+
+    Unlike ``plan_schedule`` (which re-spreads a whole batch and is meant as a
+    deliberate one-off), this only ever *adds* the next few posts after the last
+    slot already in the queue, so a nightly run can keep the queue topped up
+    without a person in the loop.
+    """
+    scheduled = ('planned', 'submitting', 'submitted', 'confirmed')
+    target = max(1, int(limit if limit is not None else auto_schedule_ahead()))
+    with s.database() as db:
+        rows = db.execute(
+            "SELECT i.id,i.position FROM content_ideas i WHERE i.series_id=? "
+            "AND i.status IN ('ready_to_publish','video_ready','scheduled','published') "
+            "AND COALESCE(i.media_asset_id,'')<>'' "
+            "AND NOT EXISTS (SELECT 1 FROM content_publications p WHERE p.idea_id=i.id) "
+            "ORDER BY i.position LIMIT ?", (series_id, target)).fetchall()
+        newest = db.execute(
+            'SELECT MAX(due_at) AS due FROM content_publications WHERE status IN (?,?,?,?)',
+            scheduled).fetchone()
+    if not rows:
+        return {'created': 0, 'ideas': 0, 'platforms': list(platforms)}
+    zone = _zone()
+    now = s.now()
+    last_due = int(newest['due'] or 0) if newest else 0
+    cursor = datetime.datetime.fromtimestamp(max(last_due, now), zone) + datetime.timedelta(minutes=1)
+    hours = slot_hours()
+    slots = []
+    while len(slots) < len(rows):
+        day = cursor.date()
+        chosen = None
+        for hour, minute in hours:
+            candidate = datetime.datetime.combine(day, datetime.time(hour, minute), tzinfo=zone)
+            if candidate > cursor:
+                chosen = candidate
+                break
+        if chosen is None:
+            cursor = datetime.datetime.combine(day + datetime.timedelta(days=1),
+                                               datetime.time(0, 0), tzinfo=zone)
+            continue
+        slots.append(int(chosen.timestamp()))
+        cursor = chosen
+    created = 0
+    with s.database() as db:
+        for idea, due in zip(rows, slots):
+            label = datetime.datetime.fromtimestamp(due, zone).strftime('%Y-%m-%d %H:%M %Z')
+            for platform in platforms:
+                exists = db.execute('SELECT id FROM content_publications WHERE idea_id=? AND platform=?',
+                                    (idea['id'], platform)).fetchone()
+                if exists:
+                    continue
+                db.execute('INSERT INTO content_publications (id,idea_id,platform,channel_id,due_at,local_slot,'
+                           'status,buffer_post_id,error_message,response_json,attempts,created_at,updated_at) '
+                           'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                           (str(uuid.uuid4()), idea['id'], platform, '', due, label, 'planned',
+                            '', '', '', 0, now, now))
+                created += 1
+    return {'created': created, 'ideas': len(rows), 'platforms': list(platforms)}
+
+
+def auto_schedule(limit=None):
+    """Top the publishing queue up to CONTENT_AUTO_SCHEDULE_AHEAD planned posts."""
+    if not auto_schedule_enabled():
+        return {'created': 0, 'reason': 'CONTENT_AUTO_SCHEDULE is off.'}
+    with s.database() as db:
+        series = db.execute('SELECT * FROM content_series ORDER BY created_at DESC LIMIT 1').fetchone()
+        if not series:
+            return {'created': 0, 'reason': 'No series exists yet.'}
+        ahead = db.execute("SELECT COUNT(*) AS n FROM content_publications WHERE status IN "
+                           "('planned','submitting','confirmed') AND platform='tiktok'").fetchone()['n']
+        ready = db.execute("SELECT COUNT(*) AS n FROM content_ideas WHERE series_id=? AND "
+                           "status IN ('ready_to_publish','video_ready') AND COALESCE(media_asset_id,'')<>''",
+                           (series['id'],)).fetchone()['n']
+    want = int(limit if limit is not None else auto_schedule_ahead()) - int(ahead or 0)
+    if want <= 0 or ready <= 0:
+        return {'created': 0, 'ahead': int(ahead or 0), 'ready': int(ready or 0),
+                'reason': 'Queue is already deep enough.' if want <= 0 else 'No rendered clips waiting.'}
+    return schedule_next(series['id'], limit=want)
+
+
 def publishing_status():
     channels = {'configured': buffer_api.configured(), 'enabled': buffer_api.enabled(),
                 'key_variable': 'BUFFER_API_KEY', 'queue_cap': queue_cap(), 'channels': [],
@@ -805,12 +898,49 @@ def set_publication(identifier, status, **columns):
                    tuple(columns[key] for key in keys) + (identifier,))
 
 
-def refresh_publications(limit=20):
-    """Ask Buffer for the current state of recently confirmed posts."""
+def _state(name, default=''):
+    with s.database() as db:
+        row = db.execute('SELECT value FROM content_state WHERE name=?', (name,)).fetchone()
+    return row['value'] if row else default
+
+
+def _set_state(name, value):
+    with s.database() as db:
+        db.execute('INSERT INTO content_state (name,value,updated_at) VALUES (?,?,?) '
+                   'ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at',
+                   (name, str(value), s.now()))
+
+
+def refresh_interval():
+    """Seconds between Buffer status polls (default 30 min).
+
+    Buffer bills API calls per channel and plan, so polling on every 5-minute
+    tick would exhaust the quota on day one. Posts are checked a few at a time,
+    only once they are due.
+    """
+    try:
+        value = int(os.environ.get('CONTENT_BUFFER_POLL_SECONDS', '1800'))
+    except ValueError:
+        value = 1800
+    return max(300, value)
+
+
+def refresh_publications(limit=3, force=False):
+    """Ask Buffer for the state of confirmed posts that are already due.
+
+    Returns [] (and records why) when the poll interval has not elapsed, so the
+    worker's 5-minute cadence does not multiply into hundreds of API calls.
+    """
+    interval = refresh_interval()
+    last = int(_state('buffer_poll_at', '0') or 0)
+    if not force and s.now() - last < interval:
+        return []
+    _set_state('buffer_poll_at', s.now())
     updated = []
     with s.database() as db:
         rows = db.execute("SELECT id,buffer_post_id FROM content_publications WHERE status='confirmed' "
-                          "AND buffer_post_id<>'' ORDER BY updated_at LIMIT ?", (int(limit),)).fetchall()
+                          "AND buffer_post_id<>'' AND due_at<=? ORDER BY due_at LIMIT ?",
+                          (s.now() + 300, int(limit))).fetchall()
     for row in rows:
         try:
             post = buffer_api.post(row['buffer_post_id'])
@@ -908,7 +1038,7 @@ def advance_ideas():
 def tick(worker_id='worker', max_generate=2, max_caption=2, max_publish=4, sync_jobs=20):
     """One worker pass. Idempotent; safe to call from cron every few minutes."""
     report = {'started_at': s.now(), 'video': {}, 'ideas': [], 'captions': [], 'publishing': [],
-              'jobs': {'leased': 0, 'done': 0, 'failed': 0}, 'errors': []}
+              'scheduling': {}, 'jobs': {'leased': 0, 'done': 0, 'failed': 0}, 'errors': []}
 
     try:
         report['video'] = video.sync_all(sync_jobs)
@@ -944,10 +1074,17 @@ def tick(worker_id='worker', max_generate=2, max_caption=2, max_publish=4, sync_
             report['jobs']['failed'] += 1
             report['errors'].append('job %s: %s' % (job['kind'], error))
 
+    # Keep the queue topped up from clips that are already rendered, so a night
+    # never ends with finished videos that have no posting slot.
+    try:
+        report['scheduling'] = auto_schedule()
+    except Exception as error:
+        report['errors'].append('scheduling: %s' % error)
+
     if buffer_api.enabled():
         try:
             report['publishing'] = publish_due(max_publish)
-            report['refreshed'] = refresh_publications(10)
+            report['refreshed'] = refresh_publications(3)
         except Exception as error:
             report['errors'].append('publishing: %s' % error)
     else:

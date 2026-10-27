@@ -224,14 +224,28 @@ already exists for the mail worker). One tick:
 
 1. polls active fal jobs (no paid work is created),
 2. moves completed jobs to the caption queue,
-3. renders at most one caption (fits the 60 s function limit),
-4. submits up to 4 planned posts if `PUBLISHING_ENABLED=true`.
+3. tops the night up to `CONTENT_NIGHTLY_COUNT` and renders **one** clip
+   (a kinetic episode takes ~45–70 s of CPU, so one per pass keeps a function
+   invocation well inside its limit),
+4. keeps `CONTENT_AUTO_SCHEDULE_AHEAD` posts (default 4) queued per platform by
+   appending slots after the last one already booked — no human click needed,
+5. submits up to 4 planned posts if `PUBLISHING_ENABLED=true`, and polls Buffer
+   for the status of posts that are already due, at most every
+   `CONTENT_BUFFER_POLL_SECONDS` (default 1800).
+
+**Buffer API budget.** Buffer meters API calls per plan (Free: 1,000 per channel
+per month, up to 3,000; Essentials: 7,500 per 30 days and 250 per 24 hours).
+Polling status on every 5-minute tick would blow that on day one, so the poll is
+rate-limited and only touches posts that are already due. Steady state for 6
+posts a day on two channels: 12 `createPost` calls + ~144 status polls = about
+156 calls a day, which fits Essentials with headroom and does **not** fit the
+Free plan. That is why §6 and §12 budget for Essentials.
 
 Options, cheapest first:
 
 | Option | Cost | Frequency | Notes |
 | --- | --- | --- | --- |
-| **cron-job.org** (recommended) | €0 | every 1–5 min | Free account, one job with a custom `Authorization` header. No code changes. |
+| **cron-job.org** (recommended) | €0 | every 5 min | Free account, one job with a custom `Authorization` header. No code changes. |
 | **Cloudflare Worker cron trigger** | $0 on the free plan | 1 min | 10 lines of `fetch()` if you prefer owning it; still free. |
 | GitHub Actions schedule | $0 on a public repo | 5 min (delayed in practice) | Needs a repository secret; not needed if the two above work. |
 | **Vercel Cron** | included | **once/day on Hobby**, per-minute on Pro ($20/mo) | `vercel.json` already contains a daily 04:00 UTC safety net. |
@@ -370,6 +384,43 @@ and the ffmpeg path, so a missing dependency is visible before a night runs.
 **Deterministic, not generative.** Every frame is a pure function of the
 timeline, so a retry produces the identical video and costs nothing. Changing
 copy means editing `app/kinetic_series.py`, not re-prompting a model.
+
+### Will 180 clips a month actually run?
+
+The money is no longer the constraint; CPU time is. Measured on the development
+sandbox (2 vCPU):
+
+| Measure | Value |
+| --- | --- |
+| One episode, frames + x264 encode | 45–47 s wall |
+| Pure frame drawing (592 frames, 30 fps) | ~65 s of CPU |
+| Output size | 2.4 MB |
+
+So a month of 6 a night (180 clips) is **3–4 CPU-hours** at sandbox speed, and
+**6–9 CPU-hours** if a serverless function is 2–3× slower. Consequences:
+
+* **Vercel Hobby** includes 4 CPU-hours a month and then pauses the feature for
+  30 days; it is also explicitly for non-commercial personal projects. A
+  marketing pipeline is neither. Do not plan 180 clips a month on Hobby.
+* **Vercel Pro** ($20/mo) defaults to 300 s per function (800 s configurable) and
+  bills Active CPU from an included $20 credit: 6–9 CPU-hours ≈ $1–2. Raise
+  `maxDuration` for `api/index.py` above the current 60 before trusting it.
+* **Any €4–5 VPS or a home machine** running `python3 -m app.server` with the
+  same `DATABASE_URL` sidesteps the limit entirely: the render happens there,
+  the bytes land in PostgreSQL, and Buffer still fetches them from
+  `PUBLIC_BASE_URL`.
+
+Budget for the full unattended setup (180 clips/month):
+
+| Item | Free-plan attempt | Realistic (recommended) |
+| --- | --- | --- |
+| Video render | $0 | $0 |
+| Narration (Kokoro / MiniMax HD) | $1.12 / $5.62 | $1.12 / $5.62 |
+| Buffer | $0, but the API quota is exceeded | $12 (2 channels, Essentials) |
+| Compute | Hobby pauses after 4 CPU-h | Pro $20 or a ~$5 VPS |
+| **Total** | **not viable at this volume** | **$34–38 (≈ €32–36)** |
+
+Still inside the €80 ceiling, with room for a second series.
 
 ---
 

@@ -287,6 +287,14 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(self.stub.submissions, [])
 
     # --- voiceover --------------------------------------------------------
+    def test_pause_tags_are_stripped_for_models_that_would_speak_them(self):
+        text = 'One<#0.35#>two <#1.5#> three.'
+        self.assertEqual(voice.strip_pauses(text), 'One two three.')
+        kokoro = voice._payload('kokoro', text, 'af_heart')
+        self.assertEqual(kokoro['text'], 'One two three.')
+        minimax = voice._payload('minimax-speech-hd', text, 'Deep_Voice_Man')
+        self.assertIn('<#0.35#>', minimax['prompt'])   # MiniMax honours pauses
+
     def test_voice_payloads_and_estimates(self):
         plan = voice.estimate('x' * 220)
         self.assertEqual(plan['model'], 'minimax-speech-hd')
@@ -467,6 +475,68 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(result['submitted'], 2)
         self.assertIn('spending limit', result['reason'])
 
+    # --- unattended scheduling and Buffer quota ---------------------------
+    def test_auto_schedule_appends_slots_without_duplicating(self):
+        series_id = self.series(9, model='kinetic-typography', duration_seconds=20, resolution='')
+        with s.database() as db:
+            identifiers = [row['id'] for row in
+                           db.execute('SELECT id FROM content_ideas ORDER BY position')]
+        for idea_id in identifiers:
+            content.decide({'id': idea_id, 'action': 'approve'}, 'unit-test')
+        with patch.dict(os.environ, {'FAL_KEY': ''}):
+            content.submit_batch({'series_id': series_id, 'limit': 3}, 'unit-test')
+        # Only rendered clips can be scheduled: mark three as ready with media.
+        with s.database() as db:
+            for index, idea_id in enumerate(identifiers[:3]):
+                db.execute("UPDATE content_ideas SET status='ready_to_publish', media_asset_id=? WHERE id=?",
+                           ('asset-%d' % index, idea_id))
+        with patch.dict(os.environ, {'CONTENT_AUTO_SCHEDULE': 'true', 'CONTENT_AUTO_SCHEDULE_AHEAD': '3'}):
+            first = content.auto_schedule()
+            second = content.auto_schedule()
+        self.assertEqual(first['created'], 6)      # 3 ideas x 2 platforms
+        self.assertEqual(second['created'], 0)     # nothing duplicated
+        with s.database() as db:
+            rows = db.execute('SELECT platform,due_at,local_slot FROM content_publications '
+                              'ORDER BY due_at').fetchall()
+            ideas = db.execute("SELECT COUNT(*) AS n FROM content_ideas "
+                               "WHERE COALESCE(media_asset_id,'')=''").fetchone()['n']
+        self.assertEqual(len(rows), 6)
+        self.assertEqual({row['platform'] for row in rows}, {'tiktok', 'instagram'})
+        # Every slot is in the future and on a configured local time.
+        now = s.now()
+        self.assertTrue(all(row['due_at'] > now for row in rows))
+        hours = {(hour, minute) for hour, minute in content.slot_hours()}
+        for row in rows:
+            local = datetime.datetime.fromtimestamp(row['due_at'], content._zone())
+            self.assertIn((local.hour, local.minute), hours)
+        self.assertEqual(ideas, 6)                 # clips with no media stay unscheduled
+
+    def test_auto_schedule_can_be_switched_off(self):
+        with patch.dict(os.environ, {'CONTENT_AUTO_SCHEDULE': 'false'}):
+            result = content.auto_schedule()
+        self.assertEqual(result['created'], 0)
+        self.assertIn('CONTENT_AUTO_SCHEDULE is off', result['reason'])
+
+    def test_buffer_polling_respects_the_interval(self):
+        calls = []
+
+        def fake_post(identifier):
+            calls.append(identifier)
+            return {'id': identifier, 'status': 'sent', 'sentAt': 'now'}
+
+        with patch.object(buffer_api, 'post', fake_post), \
+                patch.dict(os.environ, {'CONTENT_BUFFER_POLL_SECONDS': '1800'}):
+            first = content.refresh_publications(3, force=True)
+            self.assertEqual(len(calls), 0)          # nothing due yet
+            self.assertEqual(first, [])
+            # A second call inside the interval makes no request at all.
+            content.refresh_publications(3)
+            self.assertEqual(len(calls), 0)
+            self.assertEqual(content.refresh_interval(), 1800)
+            with patch.dict(os.environ, {'CONTENT_BUFFER_POLL_SECONDS': '60'}):
+                self.assertEqual(content.refresh_interval(), 300)   # floored
+        self.assertLess(content.refresh_interval(), 3600)
+
     # --- scheduling -------------------------------------------------------
     def test_slots_are_spread_across_thirty_days_in_athens(self):
         slots = content.build_slots(40, 30)
@@ -524,11 +594,15 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertGreater(served.find(b'mvhd'), 0)
         self.assertEqual(self.http('/media/' + 'a' * 32 + '.mp4')[0], 404)
         self.assertEqual(self.http('/media/../etc/passwd')[0], 404)
-        # The next pass schedules it; nothing is sent because publishing is off.
+        # The tick that rendered it also queued it for posting (auto-schedule),
+        # so nothing is sent yet because publishing is off.
+        with s.database() as db:
+            queued = db.execute("SELECT COUNT(*) AS n FROM content_publications WHERE status='planned'").fetchone()['n']
+        self.assertEqual(queued, 2)
         code, body, _ = self.http('/api/admin/content/schedule', {'series_id': series_id, 'days': 30},
                                   cookie=self.admin())
         self.assertEqual(code, 200, body)
-        self.assertEqual(json.loads(body)['planned'], 2)
+        self.assertEqual(json.loads(body)['planned'], 0)   # no duplicate slots
         report = content.tick('test-worker')
         self.assertEqual(report['publishing'], [])
         self.assertIn('publishing_note', report)
