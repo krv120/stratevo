@@ -18,7 +18,7 @@ import json
 import os
 import uuid
 
-from app import buffer_api, captions, content_library, media, video, voice
+from app import buffer_api, captions, content_library, kinetic, kinetic_series, media, video, voice
 from app import suppliers as s
 
 SCHEMA = '''
@@ -101,6 +101,36 @@ def _series(identifier):
     return row
 
 
+KINETIC_MODEL = 'kinetic-typography'
+
+
+def default_model():
+    """Renderer preselected for a new series.
+
+    Kinetic is the default because it is free and deterministic; setting
+    CONTENT_RENDERER=fal keeps the text-to-video path as the default instead.
+    """
+    choice = (os.environ.get('CONTENT_RENDERER') or 'kinetic').strip().lower()
+    return video.DEFAULT_MODEL if choice == 'fal' else KINETIC_MODEL
+
+
+def is_kinetic(series):
+    """True when this series renders its clips in code instead of calling fal.ai."""
+    entry = video.MODELS.get(series['model'], {})
+    return entry.get('renderer') == 'kinetic'
+
+
+def renderer_name(series=None):
+    """Which renderer clips use, for the dashboard and the docs.
+
+    Without a series the answer is the configured default, so the nightly status
+    never claims "fal" while the pipeline is drawing episodes in code.
+    """
+    if series is not None:
+        return 'kinetic' if is_kinetic(series) else 'fal'
+    return 'kinetic' if default_model() == KINETIC_MODEL else 'fal'
+
+
 def _idea(identifier):
     with s.database() as db:
         row = db.execute('SELECT * FROM content_ideas WHERE id=?', (identifier,)).fetchone()
@@ -120,12 +150,14 @@ def create_series(data, actor='operator'):
         raise s.WorkflowError('Choose how many ideas to generate.', 400, field='count') from None
     if not 1 <= count <= 200:
         raise s.WorkflowError('A series must contain between 1 and 200 videos.', 400, field='count')
-    model = data.get('model') or video.DEFAULT_MODEL
+    model = data.get('model') or default_model()
     if model not in video.MODELS:
         raise s.WorkflowError('Choose a supported video model.', 400, field='model')
     entry = video.MODELS[model]
     try:
-        duration = int(data.get('duration_seconds', 10))
+        # Default to the model's own shortest duration: a kinetic episode only
+        # exists at 20 s, and a fal model knows its own range.
+        duration = int(data.get('duration_seconds', entry['durations'][0]))
     except (TypeError, ValueError):
         raise s.WorkflowError('Choose a supported duration.', 400, field='duration_seconds') from None
     if duration not in entry['durations']:
@@ -137,7 +169,17 @@ def create_series(data, actor='operator'):
     if aspect not in entry['aspect_ratios']:
         raise s.WorkflowError('Faceless vertical series need a supported aspect ratio.', 400, field='aspect_ratio')
     seed = str(data.get('seed') or uuid.uuid4().hex)[:64]
-    ideas = content_library.generate(seed, count)
+    if entry.get('renderer', 'fal') == 'kinetic':
+        # One idea per kinetic episode, cycling the modular variations. The
+        # copy is the episode's own, so the on-screen type and the posted
+        # caption always match.
+        ideas = []
+        for index in range(1, count + 1):
+            row = kinetic_series.copy_for(index)
+            row['position'] = index
+            ideas.append(row)
+    else:
+        ideas = content_library.generate(seed, count)
     identifier = str(uuid.uuid4())
     now = s.now()
     with s.database() as db:
@@ -176,6 +218,21 @@ def estimate(model=None, duration=10, resolution='', count=40):
         count = 40
     per_video = round(unit * duration, 4)
     budget = video.budget()
+    if entry.get('renderer', 'fal') == 'kinetic':
+        return {'model': name, 'label': entry['label'], 'duration_seconds': duration,
+                'resolution': resolution, 'unit_price_usd': 0.0, 'per_video_usd': 0.0,
+                'videos': count, 'total_usd': 0.0,
+                'promotional_unit_price_usd': None, 'promotional_total_usd': None,
+                'promo_ends': '', 'budget_limit_usd': budget['limit_usd'],
+                'budget_spent_usd': budget['spent_usd'],
+                'budget_remaining_usd': budget['remaining_usd'],
+                'affordable_videos': count, 'renderer': 'kinetic',
+                'note': 'Rendered in code with Pillow and ffmpeg: no video-model charge. '
+                        'Narration is billed separately by the voice provider.',
+                'options': [{'model': key, 'label': item['label'],
+                             'resolutions': list(item.get('resolutions', ())),
+                             'per_second_usd': item['per_second_usd'],
+                             'prices': item.get('resolution_prices', {})} for key, item in video.MODELS.items()]}
     return {'model': name, 'label': entry['label'], 'duration_seconds': duration,
             'resolution': resolution, 'unit_price_usd': unit, 'per_video_usd': per_video,
             'videos': count, 'total_usd': round(per_video * count, 2),
@@ -200,6 +257,16 @@ def cost_plan(series, count=None):
     target = int(count if count is not None else series['target_count'])
     per_video = round(unit * int(series['duration_seconds']), 4)
     budget = video.budget()
+    if entry.get('renderer', 'fal') == 'kinetic':
+        return {'model': series['model'], 'label': entry['label'], 'resolution': resolution,
+                'duration_seconds': int(series['duration_seconds']), 'unit_price_usd': 0.0,
+                'per_video_usd': 0.0, 'videos': target, 'total_usd': 0.0,
+                'promotional_unit_price_usd': None, 'promotional_total_usd': None,
+                'promo_ends': '', 'budget_limit_usd': budget['limit_usd'],
+                'budget_spent_usd': budget['spent_usd'],
+                'budget_remaining_usd': budget['remaining_usd'],
+                'affordable_videos': target, 'renderer': 'kinetic',
+                'note': 'Rendered in code: the only per-video cost is narration (if enabled).'}
     return {'model': series['model'], 'label': entry['label'], 'resolution': resolution,
             'duration_seconds': int(series['duration_seconds']),
             'unit_price_usd': unit, 'per_video_usd': per_video,
@@ -240,7 +307,8 @@ def overview(series_id=None, base=''):
             series = db.execute('SELECT * FROM content_series ORDER BY created_at DESC LIMIT 1').fetchone()
         if not series:
             return {'series': None, 'ideas': [], 'counts': {}, 'cost': None, 'publications': [],
-                    'publishing': publishing_status(), 'worker': worker_status()}
+                    'publishing': publishing_status(), 'worker': worker_status(),
+                    'default_model': default_model(), 'renderer': renderer_name()}
         rows = db.execute('SELECT * FROM content_ideas WHERE series_id=? ORDER BY position', (series['id'],)).fetchall()
         publications = db.execute(
             'SELECT p.*, i.position AS idea_position FROM content_publications p '
@@ -253,10 +321,13 @@ def overview(series_id=None, base=''):
     counts = {}
     for row in rows:
         counts[row['status']] = counts.get(row['status'], 0) + 1
-    return {'series': dict(series), 'ideas': [public_idea(row, base, assets) for row in rows], 'counts': counts,
+    series_payload = dict(series)
+    series_payload['renderer'] = renderer_name(series)
+    return {'series': series_payload, 'ideas': [public_idea(row, base, assets) for row in rows], 'counts': counts,
             'cost': cost_plan(series), 'publications': [dict(row) for row in publications],
             'publishing': publishing_status(), 'worker': worker_status(),
-            'nightly': nightly_status(), 'voice': voice.status(), 'cta': cta_text(),
+            'nightly': nightly_status(series), 'voice': voice.status(), 'cta': cta_text(),
+            'default_model': default_model(),
             'media': media.stats()}
 
 
@@ -342,13 +413,24 @@ def submit_batch(data, actor='operator', limit=None):
     except (TypeError, ValueError):
         raise s.WorkflowError('Choose how many videos to queue.', 400, field='limit') from None
     requested = max(1, min(requested, 40))
-    if not video.fal.configured():
+    if not is_kinetic(series) and not video.fal.configured():
         raise s.WorkflowError('FAL_KEY is not configured on the server.', 503)
     with s.database() as db:
         rows = db.execute("SELECT * FROM content_ideas WHERE series_id=? AND status='approved' "
                           "ORDER BY position LIMIT ?", (series['id'], requested)).fetchall()
     if not rows:
         raise s.WorkflowError('No approved ideas are waiting. Approve ideas first.', 409)
+    if is_kinetic(series):
+        # No provider, no budget: queue the local render. Each clip is drawn on
+        # the worker and stored in media_assets exactly like a captioned one.
+        queued = []
+        for idea in rows:
+            set_status(idea['id'], 'video_ready')
+            enqueue('caption', idea['id'])
+            queued.append({'idea_id': idea['id'], 'position': idea['position'],
+                           'job_id': '', 'cost_usd': 0.0})
+        return {'queued': queued, 'skipped': [], 'failed': [], 'queued_count': len(queued),
+                'spend_usd': 0.0, 'budget': video.budget(), 'renderer': 'kinetic'}
     queued, skipped, failures = [], [], []
     for idea in rows:
         # One deterministic key per attempt: a retry of a genuinely failed
@@ -404,6 +486,8 @@ def narration_script(idea):
 def render_captions(idea_id):
     """Burn captions into a completed generation and store the result durably."""
     idea = _idea(idea_id)
+    if is_kinetic(_series(idea['series_id'])):
+        return render_kinetic(idea)
     if not idea['video_job_id']:
         raise s.WorkflowError('This idea has no video job.', 409)
     job = video.find(idea['video_job_id'])
@@ -447,6 +531,55 @@ def render_captions(idea_id):
                source_video_url=job['video_url'], caption_error=voice_note)
     return {'idea_id': idea_id, 'asset': asset, 'video': info,
             'narrated': bool(narration), 'voice_note': voice_note}
+
+
+def render_kinetic(idea):
+    """Draw one episode in code, add narration, and store it durably.
+
+    The clip is deterministic: the same episode always renders to the same
+    frames, so a retry costs nothing and produces the same video. Only the
+    narration (if a voice provider is configured) costs money.
+    """
+    series = _series(idea['series_id'])
+    position = int(idea['position'] or 1)
+    data = kinetic_series.episode(position)
+    root = _media_dir()
+    target = root / (idea['id'] + '.mp4')
+    narration, voice_note = None, ''
+    try:
+        crf = int(os.environ.get('CONTENT_CAPTION_CRF', '20'))
+    except ValueError:
+        crf = 20
+    if voice.configured():
+        try:
+            text = voice.fit(kinetic_series.voiceover(data), kinetic.DURATION)
+            spoken = voice.synthesize(text, idea_id=idea['id'])
+            narration = root / (idea['id'] + '-voice.mp3')
+            narration.write_bytes(spoken['bytes'])
+        except (voice.VoiceError, s.WorkflowError) as error:
+            # Never block the clip on the voice provider: a silent episode still
+            # ships, and the reason is recorded on the idea.
+            voice_note = str(error)[:300]
+    try:
+        info = kinetic.render(data, target, index=position, cta=cta_text(),
+                              audio=narration, crf=max(16, min(crf, 30)))
+        if target.stat().st_size > MAX_SERVED_BYTES:
+            info = kinetic.render(data, target, index=position, cta=cta_text(),
+                                  audio=narration, crf=min(30, max(16, crf) + 6), preset='faster')
+        if target.stat().st_size > MAX_SERVED_BYTES:
+            target.unlink(missing_ok=True)
+            raise s.WorkflowError('The rendered clip is larger than the 4.5 MB response limit. '
+                                  'Raise CONTENT_CAPTION_CRF.', 413)
+        asset = media.store(target.read_bytes(), idea_id=idea['id'])
+    finally:
+        target.unlink(missing_ok=True)
+        if narration is not None:
+            narration.unlink(missing_ok=True)
+    set_status(idea['id'], 'ready_to_publish', media_asset_id=asset['id'],
+               source_video_url='kinetic://episode-' + str(position), caption_error=voice_note)
+    return {'idea_id': idea['id'], 'asset': asset, 'video': info, 'renderer': 'kinetic',
+            'narrated': narration is not None, 'voice_note': voice_note,
+            'episode': (position - 1) % max(1, len(kinetic_series.EPISODES)) + 1}
 
 
 def fal_download(url):
@@ -862,20 +995,30 @@ def inside_night(now=None):
 
 
 def generated_tonight(now=None):
+    """Clips produced in the current night window.
+
+    Counts paid generations *and* locally rendered episodes; a kinetic night
+    creates no video_jobs, so counting only those would never reach the target.
+    """
     start, end = night_window(now)
+    upper = min(end, (now or s.now()) + 1)
     with s.database() as db:
-        row = db.execute("SELECT COUNT(*) AS n FROM video_jobs WHERE idea_id<>'' AND created_at>=? AND created_at<?",
-                         (start, min(end, (now or s.now()) + 1))).fetchone()
-    return int(row['n'] or 0)
+        paid = db.execute("SELECT COUNT(*) AS n FROM video_jobs WHERE idea_id<>'' "
+                          "AND created_at>=? AND created_at<?", (start, upper)).fetchone()
+        local = db.execute("SELECT COUNT(*) AS n FROM content_ideas WHERE video_job_id IS NULL "
+                           "AND status IN ('video_ready','caption_pending','ready_to_publish',"
+                           "'scheduled','published') AND updated_at>=? AND updated_at<?",
+                           (start, upper)).fetchone()
+    return int(paid['n'] or 0) + int(local['n'] or 0)
 
 
-def nightly_status():
+def nightly_status(series=None):
     start, end = night_window()
     made = generated_tonight()
     return {'count': nightly_count(), 'generated_tonight': made,
             'remaining_tonight': max(0, nightly_count() - made),
             'window_start': start, 'window_end': end, 'auto_approve': auto_approve(),
-            'slot_hours': len(slot_hours())}
+            'renderer': renderer_name(series), 'slot_hours': len(slot_hours())}
 
 
 def nightly_topup(max_submit=2, actor='nightly'):

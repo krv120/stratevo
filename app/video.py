@@ -97,6 +97,22 @@ MODELS = {
         'per_second_usd': 0.07,
         'docs': 'https://fal.ai/models/fal-ai/kling-video/v2.5-turbo/pro/text-to-video/api',
     },
+    # Not a fal endpoint: the clip is drawn frame by frame with Pillow and
+    # encoded with ffmpeg, so the per-video cost is zero. It lives in this table
+    # so the studio can pick it and every cost path reports $0 instead of a
+    # hidden charge. ``content.render_kinetic`` is the only caller.
+    'kinetic-typography': {
+        'endpoint': '',
+        'label': 'Kinetic typography (rendered in code, $0)',
+        'provider': 'kinetic',
+        'renderer': 'kinetic',
+        'durations': (20,),
+        'aspect_ratios': ('9:16',),
+        'per_second_usd': 0.0,
+        'docs': '',
+        'note': '19.7 s, 1080x1920, seven scenes: hook, filmstrip, chat, refraction, '
+                'questions, equation, sign-off. Deterministic, no API call.',
+    },
     'kling-3-pro': {
         'endpoint': 'fal-ai/kling-video/v3/pro/text-to-video',
         'label': 'Kling 3.0 Pro',
@@ -285,6 +301,9 @@ def _payload(fields, entry):
 def submit(data, actor='operator', *, retried_from='', attempt=1, idea_id=''):
     fields = validate(data)
     entry = _model(fields['model'])
+    if entry.get('renderer', 'fal') != 'fal':
+        raise s.WorkflowError('This model is rendered in code by the content pipeline; '
+                              'it is not submitted to fal.ai.', 400, field='model')
     rules = limits()
     _ensure_ready()
     s.rate_limit('video-submit:' + s.digest(str(actor)), rules['jobs_per_hour'], 3600)

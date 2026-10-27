@@ -112,7 +112,13 @@ class VideoStudioTests(unittest.TestCase):
         self.assertEqual(payload['budget']['remaining_usd'], 5.0)
         self.assertTrue(payload['webhook_configured'])
         self.assertEqual([entry['id'] for entry in payload['models']],
-                         ['minimax-h3-max-turbo', 'kling-2.5-turbo-pro', 'kling-3-pro'])
+                         ['minimax-h3-max-turbo', 'kling-2.5-turbo-pro', 'kinetic-typography',
+                          'kling-3-pro'])
+        # The in-code renderer is listed so the studio can pick it, and it is
+        # priced at zero so no cost path can invent a charge for it.
+        kinetic = [entry for entry in payload['models'] if entry['id'] == 'kinetic-typography'][0]
+        self.assertEqual(kinetic['documented_per_second_usd'], 0.0)
+        self.assertEqual(kinetic['durations'], [20])
         self.assertNotIn(KEY, body.decode())
         self.assertNotIn('Authorization', body.decode())
 

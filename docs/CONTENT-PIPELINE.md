@@ -249,6 +249,11 @@ without `PUBLISHING_ENABLED=true`.
 
 ## 6. Budget and model choice
 
+> With the in-code kinetic renderer (§6b), which ships as the default, **none of
+> the per-video prices below apply**: video cost is $0 and the monthly total is
+> ≈ €12–15. This section stays because the fal text-to-video path is still
+> available (`CONTENT_RENDERER=fal`) and its budget guard rails are unchanged.
+
 fal.ai prices checked 2026-10-27 (`minimax/h3-max-turbo/text-to-video` has a
 promotional discount until 2026-10-31; budgeting uses the **list** price):
 
@@ -315,6 +320,56 @@ Guard rails that stay in place:
 With the limit at $5, a full 40-clip run cannot start. That is intentional: the
 first real generation must be verified first. Raising the limit is an explicit,
 documented action (§8).
+
+---
+
+## 6b. The in-code kinetic renderer (default, $0 per video)
+
+The client's existing editor output — 19.73 s, 1080x1920, dark kinetic
+typography over UI mockups, seven scenes — is reproduced **deterministically in
+code** by `app/kinetic.py` (Pillow draws every frame, ffmpeg encodes it). No
+model call, no per-video charge, and the same episode always renders to the same
+frames. `app/kinetic_series.py` holds the 19 episodes (the storyboard hook plus
+the 18 modular variations) and their narration, captions and hashtags.
+
+| Scene | Time | What is on screen |
+| --- | --- | --- |
+| 1 Hook | 0.00–2.50 | iPhone mockup ("PROFILE", SUBSCRIBE), blurred and green-tinted, a brush X slashed over it, the contrarian hook slammed in emerald |
+| 2 Illusions | 2.50–6.50 | Three "looks credible" tiles in a filmstrip, morphing into a ring around "PROFILE" |
+| 3 Chat | 6.50–8.00 | "FAST REPLIES" iMessage card over a white paint stroke |
+| 4 Refraction | 8.00–9.50 | "A PROFILE / CAN'T / SHOW / THINGS", one word at a time, with a fluted-glass prism band sweeping across |
+| 5 Questions | 9.50–13.00 | Three full-screen fear questions over a rotating sunburst |
+| 6 Equation | 13.00–15.80 | `LEFT ≠ RIGHT` on black; the ≠ is drawn by hand (no bundled latin subset has U+2260) |
+| 7 Sign-off | 15.80–19.73 | Chrome S (from `web/favicon.svg`), STRATEVO, "FIND. VET. VERIFY.", `stratevo.online` |
+
+**Choosing it.** In Content Studio, pick the model *Kinetic typography (rendered
+in code, $0)* — it is preselected by default (`CONTENT_RENDERER=kinetic`). Set
+`CONTENT_RENDERER=fal` to make MiniMax the default again; the fal path is
+untouched and still works.
+
+**What happens to an idea.** `submit_batch` does not call fal at all: it moves
+approved ideas to `video_ready` and queues the existing `caption` job. The
+worker then draws the episode on its own CPU, adds narration if `VOICE_ENABLED`
+is true, stores the MP4 in `media_assets` exactly like a captioned fal clip, and
+marks the idea `ready_to_publish`. Scheduling and Buffer publishing are unchanged.
+
+**Cost.** Video $0. Narration is ~320 characters per episode (measured across the
+19 episodes, and `voice.fit` keeps it inside 19.7 s): **$0.031 per clip with
+MiniMax HD, $0.006 with Kokoro**. Six a night for 30 days (180 clips) is
+**$5.62 with MiniMax, $1.12 with Kokoro**, plus Buffer ($12 for two channels).
+Total ≈ **$13–18 a month (≈ €12–16)** — the €80 ceiling is no longer the
+constraint; CPU time is.
+
+**CPU budget.** One episode is 592 frames; on this sandbox it renders and
+encodes in ~45 s at 30 fps (CRF 20, `veryfast`). A worker pass handles up to
+`max_caption` clips (default 2), so a Vercel function needs either a longer
+`maxDuration` or one clip per pass; a small VPS or the local worker has no such
+limit. `GET /api/admin/content/plugins` reports `kinetic.ready`, the fonts found
+and the ffmpeg path, so a missing dependency is visible before a night runs.
+
+**Deterministic, not generative.** Every frame is a pure function of the
+timeline, so a retry produces the identical video and costs nothing. Changing
+copy means editing `app/kinetic_series.py`, not re-prompting a model.
 
 ---
 

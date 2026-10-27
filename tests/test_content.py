@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from app import buffer_api, captions, content, content_library, media, video, voice
+from app import buffer_api, captions, content, content_library, kinetic, kinetic_series, media, video, voice
 from app import suppliers as s
 from app.server import Handler
 from fal_stub import StubServer
@@ -342,6 +342,85 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(served.find(b'mvhd') > 0)
 
+    # --- in-code kinetic renderer -----------------------------------------
+    def test_kinetic_series_seeds_episode_copy_and_costs_nothing(self):
+        series_id = self.series(3, model='kinetic-typography', duration_seconds=20, resolution='')
+        overview = content.overview(series_id)
+        self.assertEqual(overview['series']['renderer'], 'kinetic')
+        self.assertEqual(overview['cost']['total_usd'], 0.0)
+        ideas = overview['ideas']
+        self.assertEqual(len(ideas), 3)
+        # The copy is the episode's own, so the on-screen type and the posted
+        # caption cannot drift apart.
+        episode = kinetic_series.episode(1)
+        self.assertEqual(ideas[0]['hook'], episode['hook'])
+        self.assertIn(episode['hook'].split('.')[0], ideas[0]['tiktok_caption'])
+        self.assertTrue(ideas[1]['hook'])
+        estimate = content.estimate('kinetic-typography', 20, count=40)
+        self.assertEqual(estimate['total_usd'], 0.0)
+        self.assertEqual(estimate['affordable_videos'], 40)
+        self.assertEqual(estimate['renderer'], 'kinetic')
+
+    def test_kinetic_generation_queues_local_renders_without_a_key(self):
+        series_id = self.series(2, model='kinetic-typography', duration_seconds=20, resolution='')
+        with s.database() as db:
+            identifiers = [row['id'] for row in
+                           db.execute('SELECT id FROM content_ideas ORDER BY position')]
+        for idea_id in identifiers:
+            content.decide({'id': idea_id, 'action': 'approve'}, 'unit-test')
+        with patch.dict(os.environ, {'FAL_KEY': ''}):
+            result = content.submit_batch({'series_id': series_id, 'limit': 2}, 'unit-test')
+        self.assertEqual(result['queued_count'], 2)
+        self.assertEqual(result['spend_usd'], 0.0)
+        self.assertEqual(result['renderer'], 'kinetic')
+        self.assertEqual(self.stub.submissions, [])
+        with s.database() as db:
+            statuses = {row['status'] for row in db.execute('SELECT status FROM content_ideas')}
+            jobs = db.execute("SELECT COUNT(*) AS n FROM content_jobs WHERE kind='caption'").fetchone()['n']
+        self.assertEqual(statuses, {'video_ready'})
+        self.assertEqual(jobs, 2)
+
+    def test_kinetic_worker_renders_stores_and_serves_the_clip(self):
+        series_id = self.series(1, model='kinetic-typography', duration_seconds=20, resolution='')
+        with s.database() as db:
+            idea_id = db.execute('SELECT id FROM content_ideas').fetchone()['id']
+        content.decide({'id': idea_id, 'action': 'approve'}, 'unit-test')
+        content.submit_batch({'series_id': series_id, 'limit': 1}, 'unit-test')
+        clip = make_clip(Path(self.tmp.name) / 'kinetic.mp4', seconds=1)
+        calls = []
+
+        def fake_render(data, destination, **options):
+            calls.append(options)
+            Path(destination).write_bytes(clip)
+            return {'duration': 19.73, 'has_audio': False, 'width': 1080, 'height': 1920}
+
+        with patch.object(kinetic, 'render', fake_render):
+            report = content.tick('kinetic-worker', max_caption=1, max_generate=0)
+        self.assertEqual(len(report['captions']), 1)
+        with s.database() as db:
+            row = db.execute('SELECT status,media_asset_id,source_video_url,caption_error '
+                             'FROM content_ideas').fetchone()
+            token = db.execute('SELECT token FROM media_assets WHERE id=?',
+                               (row['media_asset_id'],)).fetchone()['token']
+        self.assertEqual(row['status'], 'ready_to_publish')
+        self.assertEqual(row['source_video_url'], 'kinetic://episode-1')
+        self.assertEqual(row['caption_error'], '')
+        self.assertEqual(len(calls), 1)
+        # Voice is disabled in the tests, so the clip is silent but complete.
+        self.assertFalse(calls[0]['audio'])
+        code, served, _ = self.http('/media/' + token + '.mp4')
+        self.assertEqual(code, 200)
+        self.assertTrue(served.find(b'mvhd') > 0)
+
+    def test_kinetic_render_requires_no_fal_endpoint(self):
+        with self.assertRaises(s.WorkflowError) as caught:
+            video.submit({'prompt': 'x' * 40, 'model': 'kinetic-typography',
+                          'duration_seconds': 20, 'aspect_ratio': '9:16',
+                          'client_key': 'kinetic-test-0123456789'})
+        self.assertEqual(caught.exception.status, 400)
+        self.assertIn('rendered in code', str(caught.exception))
+        self.assertEqual(self.stub.submissions, [])
+
     # --- nightly cadence --------------------------------------------------
     def test_nightly_target_respects_the_window_and_the_budget(self):
         series_id = self.series(8)
@@ -364,6 +443,19 @@ class ContentPipelineTests(unittest.TestCase):
                     done = content.nightly_topup(max_submit=2)
             self.assertEqual(done['submitted'], 0)
             self.assertIn('already met', done['reason'])
+
+    def test_night_window_boundaries_are_local_hours(self):
+        zone = content._zone()
+        cases = {23: True, 20: True, 9: False, 8: True, 0: True, 19: False, 12: False}
+        for hour, expected in cases.items():
+            moment = datetime.datetime.now(zone).replace(hour=hour, minute=0, second=0,
+                                                         microsecond=0)
+            self.assertEqual(content.inside_night(int(moment.timestamp())), expected,
+                             'inside_night failed at %02d:00 Athens' % hour)
+        start, end = content.night_window(int(datetime.datetime.now(zone).replace(
+            hour=2, minute=30, tzinfo=None).timestamp()))
+        self.assertEqual(content.inside_night(start + 60), True)
+        self.assertEqual(content.inside_night(end), False)
 
     def test_nightly_never_exceeds_the_monthly_limit(self):
         series_id = self.series(8)

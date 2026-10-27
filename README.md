@@ -49,6 +49,22 @@ browser. Costs, the cheapest suitable model, deployment, the one-video live test
 and the remaining production steps are in
 [docs/CONTENT-PIPELINE.md](docs/CONTENT-PIPELINE.md).
 
+### Kinetic typography, rendered in code ($0 per video)
+
+The default renderer does not call a video model. `app/kinetic.py` draws the
+client's 19.73 s, 1080x1920 kinetic-typography format frame by frame with Pillow
+— hook over a defaced phone mockup, filmstrip-to-ring, iMessage trap, fluted-glass
+refraction, three fear questions, the `PROFILE ≠ PROOF` equation, and the chrome-S
+sign-off ending on `stratevo.online` — and pipes the frames into ffmpeg. Every
+frame is a pure function of the timeline, so an episode renders identically on
+every run and a retry costs nothing. `app/kinetic_series.py` holds the 19
+episodes (the storyboard hook plus the 18 modular variations) with their
+narration, captions and hashtags. Video cost is **$0**; only narration is billed
+(≈ $0.03 per clip with MiniMax HD, ≈ $0.006 with Kokoro), which puts 180 clips a
+month at roughly **€12–16 including Buffer**. The fal.ai text-to-video path is
+unchanged and selectable with `CONTENT_RENDERER=fal`. Details and the per-scene
+timeline: [docs/CONTENT-PIPELINE.md](docs/CONTENT-PIPELINE.md) §6b.
+
 ## Persistence and release status
 
 Use durable PostgreSQL for real submissions, with `STRICT_PERSISTENT_DB=true`. SQLite is useful locally; serverless `/tmp` SQLite is ephemeral and instance-local. The clean interface does not change that limitation. Migrations are additive and preserve historical business data; new document uploads remain disabled.

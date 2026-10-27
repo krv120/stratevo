@@ -143,6 +143,8 @@
       option.value = 'minimax-h3-max-turbo';
       modelSelect.append(option);
     }
+    const preferred = (state.overview && state.overview.default_model) || '';
+    if (preferred && models().some((entry) => entry.id === preferred)) modelSelect.value = preferred;
     fillDurations();
   }
 
@@ -181,10 +183,16 @@
     try {
       const plan = await api('/api/admin/content/estimate?' + params.toString());
       state.plan = plan;
-      costLine.textContent = plan.videos + ' videos × ' + plan.duration_seconds + 's at ' + plan.resolution +
-        ' = ' + money(plan.total_usd) + ' (list price ' + money(plan.unit_price_usd) + '/s). ' +
-        'Budget ' + money(plan.budget_limit_usd) + ', spent ' + money(plan.budget_spent_usd) +
-        ', so ' + plan.affordable_videos + ' videos fit the remaining allowance.';
+      if (plan.renderer === 'kinetic') {
+        costLine.textContent = plan.videos + ' videos rendered in code = ' + money(0) +
+          ' in video cost. No fal.ai call, no per-second charge; only narration (if enabled) is billed.' +
+          ' Budget ' + money(plan.budget_limit_usd) + ', spent ' + money(plan.budget_spent_usd) + '.';
+      } else {
+        costLine.textContent = plan.videos + ' videos × ' + plan.duration_seconds + 's at ' + plan.resolution +
+          ' = ' + money(plan.total_usd) + ' (list price ' + money(plan.unit_price_usd) + '/s). ' +
+          'Budget ' + money(plan.budget_limit_usd) + ', spent ' + money(plan.budget_spent_usd) +
+          ', so ' + plan.affordable_videos + ' videos fit the remaining allowance.';
+      }
       renderSide();
     } catch (error) { fail(error); }
   }
@@ -201,7 +209,9 @@
     }
     list.append(node('li', 'Monthly generation limit ' + money(plan.budget_limit_usd) + ', ' + money(plan.budget_remaining_usd) + ' remaining'));
     list.append(node('li', 'Buffer Essentials: $6 per channel/month for unlimited queued posts; the free plan allows 10 queued posts per channel'));
-    list.append(node('li', 'Caption rendering is local (ffmpeg) and adds no API cost'));
+    list.append(node('li', plan.renderer === 'kinetic'
+      ? 'Kinetic typography is drawn on the worker (Pillow + ffmpeg): $0 per clip'
+      : 'Caption rendering is local (ffmpeg) and adds no API cost'));
     sideBody.append(list);
     sideBody.append(node('p', plan.note || '', 'small'));
   }
@@ -230,9 +240,11 @@
       : (publishing.error || (publishing.configured ? 'no TikTok/Instagram channel found' : 'BUFFER_API_KEY not set'));
     const nightly = data.nightly || {};
     const speech = data.voice || {};
+    const renderMode = series.renderer === 'kinetic' ? 'kinetic (in code, $0)' : 'fal.ai text-to-video';
     statusLine.textContent = series.name + ' · ' + series.target_count + ' ideas · ' + cost.videos + ' videos at ' +
       money(cost.per_video_usd) + ' each (' + money(cost.total_usd) + ' total, ' + money(cost.budget_remaining_usd) +
-      ' left this month) · tonight ' + (nightly.generated_tonight || 0) + '/' + (nightly.count || 0) +
+      ' left this month) · renderer ' + renderMode +
+      ' · tonight ' + (nightly.generated_tonight || 0) + '/' + (nightly.count || 0) +
       (nightly.auto_approve ? ' auto-approved' : ' manual approval') +
       ' · voice ' + (speech.enabled ? speech.label + ' (' + money(speech.spent_usd) + ' of ' + money(speech.limit_usd) + ')' : 'off') +
       ' · end card ' + (data.cta || '') +

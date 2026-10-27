@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from app import suppliers, connections, marketplace, intake, seo, settings, controls, maintenance
-from app import engine_http, mail_policy, listings, directory_http, release, video, content, media, captions, voice
+from app import engine_http, mail_policy, listings, directory_http, release, video, content, media, captions, voice, kinetic
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = defaultdict(deque)
@@ -385,7 +385,8 @@ class Handler(BaseHTTPRequestHandler):
                 if route == '/api/admin/content/plugins':
                     return self.send(200,{'publishing':content.publishing_status(),'worker':content.worker_status(),
                                           'nightly':content.nightly_status(),'voice':voice.status(),
-                                          'ffmpeg':captions.ffmpeg_missing() or 'available'})
+                                          'ffmpeg':captions.ffmpeg_missing() or 'available',
+                                          'kinetic':kinetic.available()})
                 if route == '/api/admin/content/estimate':
                     query=parse_qs(urlparse(self.path).query)
                     return self.send(200,content.estimate(query.get('model',[''])[0],
