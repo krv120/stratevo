@@ -29,7 +29,7 @@ def _initialize(raw, postgres):
         raw.execute('CREATE SCHEMA IF NOT EXISTS stratevo_private')
         raw.execute('SET LOCAL search_path TO stratevo_private')
         raw.execute('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, digest TEXT NOT NULL)')
-        for path in sorted(MIGRATIONS.glob('00[1-7]_*.sql')):
+        for path in sorted(MIGRATIONS.glob('00[1-8]_*.sql')):
             text=path.read_text();digest=hashlib.sha256(text.encode()).hexdigest()
             row=raw.execute('SELECT digest FROM schema_migrations WHERE name=%s',(path.name,)).fetchone()
             previous=(row['digest'] if isinstance(row,dict) else row[0]) if row else None
@@ -38,7 +38,7 @@ def _initialize(raw, postgres):
                 text=re.sub(r'^\s*(?:BEGIN|COMMIT);\s*$', '', text, flags=re.M)
                 raw.execute(text,prepare=False)
                 raw.execute('INSERT INTO schema_migrations VALUES (%s,%s) ON CONFLICT(name) DO UPDATE SET digest=excluded.digest',(path.name,digest))
-        if len(list(MIGRATIONS.glob('00[1-7]_*.sql')))!=7:raise RuntimeError('Required migrations missing from deployment')
+        if len(list(MIGRATIONS.glob('00[1-8]_*.sql')))!=8:raise RuntimeError('Required migrations missing from deployment')
         raw.execute('ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY')
         raw.execute('REVOKE ALL ON schema_migrations FROM PUBLIC')
         for role in ('anon','authenticated'):
@@ -48,8 +48,8 @@ def _initialize(raw, postgres):
         from app import suppliers, marketplace, intake, controls, operations
         raw.execute('BEGIN IMMEDIATE')
         schema=suppliers.SCHEMA+marketplace.SCHEMA+intake.SCHEMA+controls.SCHEMA+operations.SCHEMA
-        from app import listings, directory
-        schema+=listings.SCHEMA+directory.SCHEMA
+        from app import listings, directory, video
+        schema+=listings.SCHEMA+directory.SCHEMA+video.SCHEMA
         # Upgrade legacy outbox shapes before dependent indexes are created.
         exists=raw.execute("SELECT 1 FROM sqlite_master WHERE name='outbox'").fetchone()
         if exists:

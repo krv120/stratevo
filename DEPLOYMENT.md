@@ -16,6 +16,17 @@ Vercel configuration is in `vercel.json`; `api/index.py` uses the same request h
 
 Run generators and the documented tests, deploy the approved revision, then verify every public route, `/admin`, `/supplier/account`, assets, HTTPS/security headers, canonical host redirects, robots/sitemap, and actual PostgreSQL persistence across distinct instances/restarts. With synthetic authorized data, verify registration → immediate public listing → details → booking navigation, owner changes/withdrawal, moderation, erasure and retry behavior. Delete test data only under the approved procedure. Never send test messages to real suppliers.
 
+## Content Studio video (fal.ai)
+
+Video generation adds an outbound dependency and real money, so it has its own preconditions:
+
+1. Durable PostgreSQL with `STRICT_PERSISTENT_DB=true` is mandatory outside local development. Jobs submitted from an ephemeral `/tmp` database cannot be reconciled after a restart, and the API refuses to submit them.
+2. `FAL_KEY` belongs in the hosting secret manager (`Settings → Environment Variables` on Vercel), scoped to Production. It is read only by `app/fal.py` and never reaches the browser. Do not add it to `.env.example`, `vercel.json` or any `PUBLIC_`/`NEXT_PUBLIC_` variable.
+3. `PUBLIC_BASE_URL` and `PUBLIC_ORIGIN_VERIFIED=true` must be set for the signed completion webhook (`/api/video/fal-webhook`); without them the job is still tracked by polling.
+4. Start with `VIDEO_SPEND_LIMIT_USD=1.00` and `VIDEO_MAX_JOB_USD=0.50` until the first real clip is reconciled against fal's billing dashboard.
+5. `vercel.json` permits `media-src` from `*.fal.media` and `storage.googleapis.com` so the private dashboard can play the clip. Public pages get the same header; it does not allow scripts or styles from those hosts.
+6. The first live generation, the fal billing cross-check and webhook delivery to the real host are **not** verified by the repository tests. Treat them as deployment acceptance steps.
+
 ## Migration and rollback boundaries
 
 Migrations 001–007 run through `app/connections.py`. Tests cover isolated PostgreSQL bootstrap/concurrency and reinitialization, not a copy of production data. No destructive production migration has run. Existing legacy records remain; retired product workflows are not exposed by the new directory interface.

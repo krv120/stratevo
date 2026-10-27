@@ -16,11 +16,16 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from app import suppliers, connections, marketplace, intake, seo, settings, controls, maintenance
-from app import engine_http, mail_policy, listings, directory_http, release
+from app import engine_http, mail_policy, listings, directory_http, release, video
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = defaultdict(deque)
 LOCK = threading.Lock()
+# The staff dashboard previews generated clips in place. Only fal's documented
+# media hosts are allowed, and only on this private page.
+ADMIN_MEDIA_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                   "img-src 'self' blob:; media-src 'self' https://*.fal.media https://storage.googleapis.com; "
+                   "frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -110,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:return self.send(503,{'ok':False,'database':'unavailable','mail':'not_probed'})
         pages={'/':'home','/supplier':'supplier','/admin':'admin','/access':'access','/portal':'portal','/marketplace':'marketplace','/supplier/account':'supplier-account','/inquiry':'inquiry','/assessment':'assessment','/methodology':'methodology','/privacy':'privacy','/cookies':'cookies','/terms':'terms'}
         files={route:(name+'.html','text/html; charset=utf-8') for route,name in pages.items()}
-        for name in ('site','market','manager','operations','storage','navigation','ui','comparison'):
+        for name in ('site','market','manager','operations','storage','navigation','ui','comparison','video'):
             files['/'+name+'.js']=(name+'.js','application/javascript')
         files.update({'/site.css':('site.css','text/css'),'/favicon.svg':('favicon.svg','image/svg+xml'),'/images/stratevo-social.jpg':('images/stratevo-social.jpg','image/jpeg'),'/fonts/inter-latin.woff2':('fonts/inter-latin.woff2','font/woff2'),'/fonts/inter-greek.woff2':('fonts/inter-greek.woff2','font/woff2')})
         if route not in files:
@@ -123,7 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         if mime.startswith('text/html'):
             try:body=re.sub(r'<!--SEO-START-->.*?<!--SEO-END-->',lambda _:seo.metadata(route),settings.render_public(body.decode()),flags=re.S).encode()
             except ValueError:return self.send(503,{'error':'Site metadata configuration is invalid.'})
-            return self.send(200,body,mime)
+            headers={'Content-Security-Policy':ADMIN_MEDIA_CSP} if route=='/admin' else None
+            return self.send(200,body,mime,headers)
         etag='W/"'+hashlib.sha256(body).hexdigest()+'"'
         headers={'ETag':etag,'Vary':'Accept-Encoding','Cache-Control':'public, max-age=86400' if mime=='font/woff2' else 'public, max-age=0, must-revalidate'}
         if self.headers.get('If-None-Match')==etag:return self.send(304,b'',mime,headers)
@@ -161,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
+        if route == '/api/video/fal-webhook':return self.video_webhook()
         if route in directory_http.POSTS:return directory_http.post(self,route)
         if route in engine_http.POSTS:return engine_http.post(self,route)
         if route=='/api/suppliers':return self.market_post('/api/marketplace/register')
@@ -265,6 +272,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self.send(503,{'error':'Supplier service is temporarily unavailable. Please try again later.'})
 
+    def video_webhook(self):
+        """fal.ai completion callback. The body is untrusted until its signature verifies."""
+        try:
+            length=int(self.headers.get('Content-Length','0'))
+            if not 0<length<=65536:return self.send(413,{'error':'Invalid callback size'})
+            self.connection.settimeout(15)
+            raw=self.rfile.read(length)
+            return self.send(200,video.webhook(self.headers,raw))
+        except suppliers.WorkflowError as error:
+            return self.send(error.status,{'error':str(error)})
+        except Exception:
+            return self.send(503,{'error':'Callback could not be processed; fal.ai may retry.'})
+
     def session_token(self):
         cookie = SimpleCookie()
         try:
@@ -289,6 +309,9 @@ class Handler(BaseHTTPRequestHandler):
                 if route == '/api/admin/inquiries':
                     query=parse_qs(urlparse(self.path).query)
                     return self.send(200,intake.list_inquiries(query.get('status',['all'])[0],query.get('offset',['0'])[0]))
+                if route == '/api/admin/video/status':return self.send(200,video.status_payload())
+                if route == '/api/admin/video/jobs':
+                    return self.send(200,video.jobs(parse_qs(urlparse(self.path).query).get('offset',['0'])[0]))
                 if route == '/api/admin/reports':return self.send(200,controls.reports(parse_qs(urlparse(self.path).query).get('offset',['0'])[0]))
                 if route == '/api/admin/notifications':return self.send(200,intake.delivery_overview())
                 if route == '/api/admin/marketplace':
@@ -316,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error':'Supplier service is temporarily unavailable.'})
 
     def workflow_post(self, route):
-        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions')
+        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions','/api/admin/video/jobs','/api/admin/video/sync','/api/admin/video/retry','/api/admin/video/cancel')
         if route not in allowed: return self.send(404, {'error':'Not found'})
         if not self.origin_allowed():
             return self.send(403, {'error':'Origin not allowed'})
@@ -344,6 +367,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, result, headers=self.session_cookie(token))
             elif route.endswith('/logout'):
                 return self.send(200, suppliers.logout(self.session_token()), headers=self.session_cookie(''))
+            elif route == '/api/admin/video/jobs':result=video.submit(data,identity['actor'])
+            elif route == '/api/admin/video/sync':result={'job':video.sync(data.get('id'))}
+            elif route == '/api/admin/video/retry':result=video.retry(data,identity['actor'])
+            elif route == '/api/admin/video/cancel':result=video.cancel(data)
             elif route == '/api/admin/suspend':result=controls.suspension(data,identity['actor'])
             elif route == '/api/admin/report-reviewed':result=controls.review_report(data,identity['actor'])
             elif route == '/api/admin/export':result=maintenance.export(data.get('kind'),suppliers.field(data,'id',maximum=40))

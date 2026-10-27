@@ -14,7 +14,7 @@ def page(name,route,content):
     scripts=['ui','navigation']
     if name in ('supplier','supplier-account','marketplace'):scripts+=['storage','market']
     if name in ('admin','access','portal'):scripts+=['site']
-    if name=='admin':scripts+=['manager']
+    if name=='admin':scripts+=['manager','video']
     if name=='methodology':scripts+=['comparison']
     source='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+html.escape(title)+' | STRATEVO</title><meta name="description" content="'+html.escape(description,quote=True)+'"><!--SEO-START-->'+seo.metadata(route)+'<!--SEO-END--><link rel="stylesheet" href="/site.css"><link rel="icon" type="image/svg+xml" href="/favicon.svg">'+''.join('<script defer src="/'+file+'.js"></script>' for file in scripts)+'</head><body><a class="skip-link" href="#main-content">Skip to content</a>'
     source+='<header class="mobile-header"><a class="brand" href="/" aria-label="STRATEVO home">'+LOGO+'<span>STRATEVO</span></a><a class="primary header-booking" data-booking href="'+BOOK+'" target="_blank" rel="noopener noreferrer">Book a Call</a><button type="button" id="menu-open" aria-label="Open navigation" aria-controls="navigation-drawer" aria-expanded="false"><span aria-hidden="true">☰</span></button></header>'

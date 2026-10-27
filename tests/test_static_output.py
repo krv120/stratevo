@@ -21,9 +21,10 @@ class StaticOutputTests(unittest.TestCase):
     def test_public_output_has_no_private_source(self):
         root = ROOT / 'public-site'
         files = [p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()]
-        self.assertEqual(len(files), 29)
+        self.assertEqual(len(files), 30)
         self.assertFalse(any(n.endswith(('.py', '.sql', '.sqlite3')) or n.startswith(('templates/', 'private/')) for n in files))
         self.assertIn('index.html', files)
+        self.assertIn('video.js', files)
         for path in root.glob('*.html'):
             self.assertIn('<meta name="stratevo-api" content="/api/index.py">', path.read_text())
 

@@ -29,6 +29,10 @@ The local server binds to `0.0.0.0:8000`. Set your own strong admin password/tok
 - Booking-only customer conversion. Assessment/inquiry pages prioritize the same booking link, not competing intake forms. No orders or payments.
 - No advertising/analytics requests. Optional in-page conversion events contain an allowlisted stage only, with no network transmission or persistence. `booking_opened` does not mean booking completed.
 
+## Content Studio (fal.ai video)
+
+`/admin` now includes a private Content Studio panel that submits one validated text-to-video job to fal.ai's official Queue REST API, tracks it asynchronously (status polling plus a signed completion webhook), stores the request id, video URL and computed cost in `video_jobs`, and refuses to submit when the configured monthly spending limit would be exceeded. `FAL_KEY` is a server-side environment variable only; the browser never receives it. Nothing is published and no batch generation exists. Setup, the exact key location, cost semantics and verified/unverified boundaries are in [docs/FAL-VIDEO-STUDIO.md](docs/FAL-VIDEO-STUDIO.md).
+
 ## Persistence and release status
 
 Use durable PostgreSQL for real submissions, with `STRICT_PERSISTENT_DB=true`. SQLite is useful locally; serverless `/tmp` SQLite is ephemeral and instance-local. The clean interface does not change that limitation. Migrations are additive and preserve historical business data; new document uploads remain disabled.

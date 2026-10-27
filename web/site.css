@@ -4,3 +4,8 @@
 @media(max-width:768px){.hero,.split,.site-footer{grid-template-columns:1fr}.hero{padding:45px 0;gap:30px}.brief-visual{padding:24px}.hero h1{font-size:clamp(38px,9vw,64px)}.mobile-header{padding:10px 12px;gap:8px}.mobile-header .brand{font-size:16px;gap:6px}.brand svg{width:22px}.header-booking{font-size:13px;padding:10px 11px}.site-main{padding:0 16px}.page-top{padding-top:35px}.panel,.form-panel{padding:20px}.form-grid,#market-filter{grid-template-columns:1fr}.section{padding:40px 0}.site-footer{padding:30px 16px 110px;gap:20px}.mobile-booking{display:block;position:fixed;bottom:0;left:0;right:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#0b1220f5;z-index:4}.mobile-booking .primary{width:100%}dialog{padding:22px}.check a{padding:5px 2px}.process-grid{grid-template-columns:1fr}fieldset{padding:16px}.header-booking{white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .readable a,.manager-row a{display:inline-flex;align-items:center;min-height:48px;min-width:48px}.check a{min-width:48px}
+
+/* Content Studio video preview (admin only) */
+.studio-video{display:block;width:100%;max-width:720px;height:auto;margin:16px 0;border:1px solid var(--line);border-radius:8px;background:#000}
+.studio-jobs{margin-top:18px}
+.studio-jobs .manager-row:last-child{border-bottom:0}
