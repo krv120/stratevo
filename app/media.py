@@ -91,18 +91,23 @@ def public_base():
     return _public_base()
 
 
-def url_for(asset_id, base=''):
-    """Absolute public URL for a stored asset, or '' if it cannot be served."""
-    if not asset_id:
-        return ''
-    with s.database() as db:
-        row = db.execute('SELECT token, external_url FROM media_assets WHERE id=?', (asset_id,)).fetchone()
+def url_from_row(row, base=''):
+    """Build the public URL from an already-fetched media_assets row."""
     if not row:
         return ''
     if row['external_url']:
         return row['external_url']
     origin = (base or '').rstrip('/') or _public_base()
     return (origin + '/media/' + row['token'] + '.mp4') if origin else ''
+
+
+def url_for(asset_id, base=''):
+    """Absolute public URL for a stored asset, or '' if it cannot be served."""
+    if not asset_id:
+        return ''
+    with s.database() as db:
+        row = db.execute('SELECT token, external_url FROM media_assets WHERE id=?', (asset_id,)).fetchone()
+    return url_from_row(row, base)
 
 
 def stats():

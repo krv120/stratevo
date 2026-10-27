@@ -238,16 +238,21 @@ def overview(series_id=None, base=''):
         publications = db.execute(
             'SELECT p.*, i.position AS idea_position FROM content_publications p '
             'JOIN content_ideas i ON i.id=p.idea_id WHERE i.series_id=? ORDER BY p.due_at', (series['id'],)).fetchall()
+        # One query for every media asset in the series: the dashboard polls this
+        # endpoint every 20 seconds against a remote PostgreSQL.
+        assets = {row['id']: row for row in db.execute(
+            'SELECT id, token, external_url FROM media_assets WHERE idea_id IN '
+            '(SELECT id FROM content_ideas WHERE series_id=?)', (series['id'],)).fetchall()}
     counts = {}
     for row in rows:
         counts[row['status']] = counts.get(row['status'], 0) + 1
-    return {'series': dict(series), 'ideas': [public_idea(row, base) for row in rows], 'counts': counts,
+    return {'series': dict(series), 'ideas': [public_idea(row, base, assets) for row in rows], 'counts': counts,
             'cost': cost_plan(series), 'publications': [dict(row) for row in publications],
             'publishing': publishing_status(), 'worker': worker_status(),
             'media': media.stats()}
 
 
-def public_idea(row, base=''):
+def public_idea(row, base='', assets=None):
     asset = row['media_asset_id']
     return {
         'id': row['id'], 'position': row['position'], 'topic': row['topic'], 'angle': row['angle'],
@@ -256,7 +261,8 @@ def public_idea(row, base=''):
         'instagram_caption': row['instagram_caption'], 'instagram_hashtags': row['instagram_hashtags'],
         'status': row['status'], 'video_job_id': row['video_job_id'] or '',
         'source_video_url': row['source_video_url'] or '',
-        'video_url': media.url_for(asset, base) if asset else (row['source_video_url'] or ''),
+        'video_url': (media.url_from_row((assets or {}).get(asset), base) if assets is not None
+                      else media.url_for(asset, base)) if asset else (row['source_video_url'] or ''),
         'caption_error': row['caption_error'] or '', 'approved_at': row['approved_at'],
         'reject_reason': row['reject_reason'] or '', 'regenerate_count': row['regenerate_count'],
         'reading_seconds': content_library.estimate_seconds(row['script']),
