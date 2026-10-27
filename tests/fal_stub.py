@@ -47,6 +47,10 @@ class StubServer:
         self.server.server_close()
         self.thread.join()
 
+    def complete_audio(self, request_id, url='https://v3b.fal.media/files/test/voice.mp3'):
+        self.states[request_id] = 'COMPLETED'
+        self.results[request_id] = {'audio': {'url': url}, 'duration_ms': 4000}
+
     def complete(self, request_id, url='https://v3.fal.media/files/test/clip.mp4', error=None):
         self.states[request_id] = 'COMPLETED'
         if error:

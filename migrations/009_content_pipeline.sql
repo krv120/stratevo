@@ -109,6 +109,18 @@ CREATE TABLE IF NOT EXISTS content_state (
  name TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at BIGINT NOT NULL
 );
 
+-- Money actually committed outside the video model (voiceover today).
+CREATE TABLE IF NOT EXISTS content_costs (
+ id TEXT PRIMARY KEY,
+ idea_id TEXT NOT NULL DEFAULT '',
+ kind TEXT NOT NULL,
+ units INTEGER NOT NULL DEFAULT 0,
+ usd REAL NOT NULL DEFAULT 0,
+ model TEXT NOT NULL DEFAULT '',
+ created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS content_costs_kind ON content_costs(kind, created_at);
+
 ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS idea_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS resolution TEXT NOT NULL DEFAULT '';
 
@@ -118,5 +130,6 @@ ALTER TABLE media_assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_publications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_state ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON content_series, content_ideas, media_assets, content_publications, content_jobs, content_state FROM PUBLIC;
+ALTER TABLE content_costs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON content_series, content_ideas, media_assets, content_publications, content_jobs, content_state, content_costs FROM PUBLIC;
 COMMIT;

@@ -95,9 +95,11 @@
   tickButton.type = 'button';
   const smokeButton = node('button', 'One-video real test', 'secondary');
   smokeButton.type = 'button';
+  const nightlyButton = node('button', 'Run one night now', 'secondary');
+  nightlyButton.type = 'button';
   const refreshButton = node('button', 'Refresh', 'secondary');
   refreshButton.type = 'button';
-  controls.append(queueButton, scheduleButton, publishButton, tickButton, smokeButton, refreshButton);
+  controls.append(queueButton, scheduleButton, publishButton, tickButton, smokeButton, nightlyButton, refreshButton);
   section.append(controls);
 
   const countsWrap = node('ul', undefined, 'checklist');
@@ -226,9 +228,15 @@
     const channelText = publishing.channels && publishing.channels.length
       ? publishing.channels.map((channel) => channel.display_name || channel.name || channel.service).join(', ')
       : (publishing.error || (publishing.configured ? 'no TikTok/Instagram channel found' : 'BUFFER_API_KEY not set'));
+    const nightly = data.nightly || {};
+    const speech = data.voice || {};
     statusLine.textContent = series.name + ' · ' + series.target_count + ' ideas · ' + cost.videos + ' videos at ' +
       money(cost.per_video_usd) + ' each (' + money(cost.total_usd) + ' total, ' + money(cost.budget_remaining_usd) +
-      ' left this month) · Buffer: ' + (publishing.enabled ? 'sending enabled' : 'sending disabled') + ' (' + channelText +
+      ' left this month) · tonight ' + (nightly.generated_tonight || 0) + '/' + (nightly.count || 0) +
+      (nightly.auto_approve ? ' auto-approved' : ' manual approval') +
+      ' · voice ' + (speech.enabled ? speech.label + ' (' + money(speech.spent_usd) + ' of ' + money(speech.limit_usd) + ')' : 'off') +
+      ' · end card ' + (data.cta || '') +
+      ' · Buffer: ' + (publishing.enabled ? 'sending enabled' : 'sending disabled') + ' (' + channelText +
       ') · worker: ' + worker.pending + ' queued, ' + worker.running + ' running, ' + worker.dead + ' failed permanently · ffmpeg ' + (worker.ffmpeg || 'unknown');
   }
 
@@ -424,6 +432,14 @@
     }
     notice.hidden = false;
     notice.textContent = confirmed + ' post(s) confirmed by Buffer.' + (errors.length ? ' ' + errors[0] : '');
+    await load();
+  }));
+
+  nightlyButton.addEventListener('click', withBusy(nightlyButton, 'Starting…', async () => {
+    const result = await api('/api/admin/content/nightly', { limit: 2 });
+    notice.hidden = false;
+    notice.textContent = result.submitted + ' video(s) queued' + (result.spend_usd ? ' for ' + money(result.spend_usd) : '') +
+      '. ' + (result.reason || 'Tonight\'s target: ' + ((result.nightly || {}).count || 0) + '.');
     await load();
   }));
 

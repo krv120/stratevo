@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from app import suppliers, connections, marketplace, intake, seo, settings, controls, maintenance
-from app import engine_http, mail_policy, listings, directory_http, release, video, content, media, captions
+from app import engine_http, mail_policy, listings, directory_http, release, video, content, media, captions, voice
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = defaultdict(deque)
@@ -384,6 +384,7 @@ class Handler(BaseHTTPRequestHandler):
                                                            base=self.public_base()))
                 if route == '/api/admin/content/plugins':
                     return self.send(200,{'publishing':content.publishing_status(),'worker':content.worker_status(),
+                                          'nightly':content.nightly_status(),'voice':voice.status(),
                                           'ffmpeg':captions.ffmpeg_missing() or 'available'})
                 if route == '/api/admin/content/estimate':
                     query=parse_qs(urlparse(self.path).query)
@@ -418,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error':'Supplier service is temporarily unavailable.'})
 
     def workflow_post(self, route):
-        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions','/api/admin/video/jobs','/api/admin/video/sync','/api/admin/video/retry','/api/admin/video/cancel','/api/admin/content/series','/api/admin/content/decide','/api/admin/content/regenerate','/api/admin/content/generate','/api/admin/content/schedule','/api/admin/content/publish','/api/admin/content/tick','/api/admin/content/smoke')
+        allowed = ('/api/supplier/apply','/api/supplier/request-access','/api/supplier/consume','/api/supplier/logout','/api/admin/login','/api/admin/logout','/api/admin/review','/api/admin/send-mail','/api/admin/hide-product','/api/admin/inquiry-status','/api/admin/supplier-status','/api/admin/retry-notifications','/api/admin/suspend','/api/admin/report-reviewed','/api/admin/export','/api/admin/correct','/api/admin/delete','/api/admin/revoke-sessions','/api/admin/video/jobs','/api/admin/video/sync','/api/admin/video/retry','/api/admin/video/cancel','/api/admin/content/series','/api/admin/content/decide','/api/admin/content/regenerate','/api/admin/content/generate','/api/admin/content/schedule','/api/admin/content/publish','/api/admin/content/tick','/api/admin/content/smoke','/api/admin/content/nightly')
         if route not in allowed: return self.send(404, {'error':'Not found'})
         if not self.origin_allowed():
             return self.send(403, {'error':'Origin not allowed'})
@@ -456,6 +457,7 @@ class Handler(BaseHTTPRequestHandler):
             elif route == '/api/admin/content/publish':result=content.submit_publication(data.get('publication_id'))
             elif route == '/api/admin/content/tick':result=content.tick('admin:'+identity['actor'],max_caption=1,max_publish=4)
             elif route == '/api/admin/content/smoke':result=content.smoke(identity['actor'])
+            elif route == '/api/admin/content/nightly':result=content.nightly_run(data.get('limit') or 2, identity['actor'])
             elif route == '/api/admin/video/retry':result=video.retry(data,identity['actor'])
             elif route == '/api/admin/video/cancel':result=video.cancel(data)
             elif route == '/api/admin/suspend':result=controls.suspension(data,identity['actor'])

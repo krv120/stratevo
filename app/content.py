@@ -18,7 +18,7 @@ import json
 import os
 import uuid
 
-from app import buffer_api, captions, content_library, media, video
+from app import buffer_api, captions, content_library, media, video, voice
 from app import suppliers as s
 
 SCHEMA = '''
@@ -64,12 +64,19 @@ CREATE INDEX IF NOT EXISTS content_jobs_idea ON content_jobs(idea_id, kind);
 CREATE TABLE IF NOT EXISTS content_state (
  name TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at BIGINT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS content_costs (
+ id TEXT PRIMARY KEY, idea_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
+ units INTEGER NOT NULL DEFAULT 0, usd REAL NOT NULL DEFAULT 0,
+ model TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS content_costs_kind ON content_costs(kind, created_at);
 '''
 
 IDEAS_STATES = ('draft', 'approved', 'rejected', 'video_pending', 'video_ready',
                 'caption_pending', 'ready_to_publish', 'scheduled', 'published', 'failed')
 ATHENS = 'Europe/Athens'
-DEFAULT_SLOT_HOURS = ((12, 30), (19, 0))
+# Six posting moments a day: one per generated clip when the nightly job runs 6x.
+DEFAULT_SLOT_HOURS = ((9, 0), (11, 30), (14, 0), (16, 30), (19, 0), (21, 0))
 # Vercel caps a function response at 4.5 MB and Buffer downloads the whole file.
 MAX_SERVED_BYTES = 4_400_000
 PLAN_DAYS = 30
@@ -249,6 +256,7 @@ def overview(series_id=None, base=''):
     return {'series': dict(series), 'ideas': [public_idea(row, base, assets) for row in rows], 'counts': counts,
             'cost': cost_plan(series), 'publications': [dict(row) for row in publications],
             'publishing': publishing_status(), 'worker': worker_status(),
+            'nightly': nightly_status(), 'voice': voice.status(), 'cta': cta_text(),
             'media': media.stats()}
 
 
@@ -380,6 +388,19 @@ def submit_batch(data, actor='operator', limit=None):
 # ---------------------------------------------------------------------------
 # local caption rendering
 # ---------------------------------------------------------------------------
+def cta_text():
+    """End card. Defaults to the business site, so every clip markets it."""
+    value = (os.environ.get('CONTENT_CTA') or 'stratevo.online').strip()
+    return value[:40]
+
+
+def narration_script(idea):
+    """What the voice reads: hook, then the script. No hashtags, no emoji."""
+    hook = (idea['hook'] or '').strip().rstrip('.')
+    body = (idea['script'] or '').strip()
+    return (hook + '. ' + body).strip()
+
+
 def render_captions(idea_id):
     """Burn captions into a completed generation and store the result durably."""
     idea = _idea(idea_id)
@@ -399,21 +420,32 @@ def render_captions(idea_id):
         crf = int(os.environ.get('CONTENT_CAPTION_CRF', '20'))
     except ValueError:
         crf = 20
-    info = captions.render(payload, target, idea['script'], int(job['duration_seconds']),
-                           hook=idea['hook'], crf=max(16, min(crf, 30)), preset=preset)
+    # Optional narration. A voice failure never blocks the clip: the captioned
+    # silent version is still usable and the reason is recorded on the idea.
+    narration, voice_note = b'', ''
+    if voice.configured():
+        try:
+            spoken = voice.synthesize(narration_script(idea), idea_id=idea_id)
+            narration = spoken['bytes']
+        except (voice.VoiceError, s.WorkflowError) as error:
+            voice_note = str(error)[:300]
+    options = {'hook': idea['hook'], 'cta': cta_text(), 'voice': narration or None,
+               'crf': max(16, min(crf, 30)), 'preset': preset}
+    info = captions.render(payload, target, idea['script'], int(job['duration_seconds']), **options)
     if target.stat().st_size > MAX_SERVED_BYTES:
         # A function response is capped at 4.5 MB; squeeze once, then fail loudly
         # rather than storing a file Buffer cannot download.
-        info = captions.render(payload, target, idea['script'], int(job['duration_seconds']),
-                               hook=idea['hook'], crf=min(30, max(16, crf) + 6), preset='faster')
+        options.update({'crf': min(30, max(16, crf) + 6), 'preset': 'faster'})
+        info = captions.render(payload, target, idea['script'], int(job['duration_seconds']), **options)
     if target.stat().st_size > MAX_SERVED_BYTES:
         target.unlink(missing_ok=True)
         raise s.WorkflowError('The captioned clip is larger than the 4.5 MB response limit. Shorten the clip or lower CONTENT_CAPTION_CRF.', 413)
     asset = media.store(target.read_bytes(), idea_id=idea_id)
     target.unlink(missing_ok=True)
     set_status(idea_id, 'ready_to_publish', media_asset_id=asset['id'],
-               source_video_url=job['video_url'], caption_error='')
-    return {'idea_id': idea_id, 'asset': asset, 'video': info}
+               source_video_url=job['video_url'], caption_error=voice_note)
+    return {'idea_id': idea_id, 'asset': asset, 'video': info,
+            'narrated': bool(narration), 'voice_note': voice_note}
 
 
 def fal_download(url):
@@ -460,8 +492,8 @@ def slot_hours():
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise s.WorkflowError('CONTENT_SLOT_LOCAL has an invalid time.', 503)
         found.append((hour, minute))
-    if not 1 <= len(found) <= 4:
-        raise s.WorkflowError('Configure between 1 and 4 daily posting slots.', 503)
+    if not 1 <= len(found) <= 8:
+        raise s.WorkflowError('Configure between 1 and 8 daily posting slots.', 503)
     return found
 
 
@@ -739,7 +771,7 @@ def advance_ideas():
     return moved
 
 
-def tick(worker_id='worker', max_generate=0, max_caption=2, max_publish=4, sync_jobs=20):
+def tick(worker_id='worker', max_generate=2, max_caption=2, max_publish=4, sync_jobs=20):
     """One worker pass. Idempotent; safe to call from cron every few minutes."""
     report = {'started_at': s.now(), 'video': {}, 'ideas': [], 'captions': [], 'publishing': [],
               'jobs': {'leased': 0, 'done': 0, 'failed': 0}, 'errors': []}
@@ -753,14 +785,12 @@ def tick(worker_id='worker', max_generate=0, max_caption=2, max_publish=4, sync_
     except Exception as error:
         report['errors'].append('idea advance: %s' % error)
 
-    if max_generate and video.fal.configured():
-        try:
-            with s.database() as db:
-                series = db.execute("SELECT id FROM content_series ORDER BY created_at DESC LIMIT 1").fetchone()
-            if series:
-                report['generate'] = submit_batch({'series_id': series['id'], 'limit': max_generate}, worker_id)
-        except s.WorkflowError as error:
-            report['errors'].append('generate: %s' % error)
+    # Nightly cadence: submit a couple of clips per pass until the night's
+    # target is met. Paced so VIDEO_JOBS_PER_HOUR is never tripped.
+    try:
+        report['nightly'] = nightly_topup(max_submit=max(1, min(2, int(max_generate or 2))), actor=worker_id)
+    except s.WorkflowError as error:
+        report['errors'].append('nightly: %s' % error)
 
     for job in lease_jobs(worker_id, limit=max_caption, lease_seconds=420):
         report['jobs']['leased'] += 1
@@ -792,6 +822,111 @@ def tick(worker_id='worker', max_generate=0, max_caption=2, max_publish=4, sync_
     report['finished_at'] = s.now()
     report['status'] = worker_status()
     return report
+
+
+# ---------------------------------------------------------------------------
+# nightly cadence
+# ---------------------------------------------------------------------------
+NIGHT_START_HOUR = 20   # local time the "night" starts
+NIGHT_END_HOUR = 9      # local time the night closes
+
+
+def nightly_count():
+    try:
+        value = int(os.environ.get('CONTENT_NIGHTLY_COUNT', '6'))
+    except ValueError:
+        raise s.WorkflowError('CONTENT_NIGHTLY_COUNT must be a number.', 503) from None
+    return max(0, min(value, 20))
+
+
+def auto_approve():
+    return os.environ.get('CONTENT_AUTO_APPROVE', 'false').strip().lower() == 'true'
+
+
+def night_window(now=None):
+    """(start, end) epochs of the night that contains ``now``, Europe/Athens."""
+    zone = _zone()
+    moment = datetime.datetime.fromtimestamp(now or s.now(), zone)
+    start = moment.replace(hour=NIGHT_START_HOUR, minute=0, second=0, microsecond=0)
+    if moment.hour < NIGHT_END_HOUR:
+        start -= datetime.timedelta(days=1)
+    end = start + datetime.timedelta(days=1)
+    end = end.replace(hour=NIGHT_END_HOUR, minute=0)
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def inside_night(now=None):
+    moment = datetime.datetime.fromtimestamp(now or s.now(), _zone())
+    return moment.hour >= NIGHT_START_HOUR or moment.hour < NIGHT_END_HOUR
+
+
+def generated_tonight(now=None):
+    start, end = night_window(now)
+    with s.database() as db:
+        row = db.execute("SELECT COUNT(*) AS n FROM video_jobs WHERE idea_id<>'' AND created_at>=? AND created_at<?",
+                         (start, min(end, (now or s.now()) + 1))).fetchone()
+    return int(row['n'] or 0)
+
+
+def nightly_status():
+    start, end = night_window()
+    made = generated_tonight()
+    return {'count': nightly_count(), 'generated_tonight': made,
+            'remaining_tonight': max(0, nightly_count() - made),
+            'window_start': start, 'window_end': end, 'auto_approve': auto_approve(),
+            'slot_hours': len(slot_hours())}
+
+
+def nightly_topup(max_submit=2, actor='nightly'):
+    """Generate up to ``CONTENT_NIGHTLY_COUNT`` videos per night, unattended.
+
+    Runs from the worker tick. It never exceeds the monthly budget, the
+    per-hour submit rate or the per-night count, and it only ever touches
+    approved ideas (auto-approving drafts first when CONTENT_AUTO_APPROVE=true).
+    """
+    count = nightly_count()
+    remaining = count - generated_tonight()
+    if count <= 0:
+        return {'submitted': 0, 'reason': 'Nightly generation is disabled.', 'nightly': nightly_status()}
+    if not inside_night():
+        return {'submitted': 0, 'reason': 'Outside the nightly window (%02d:00-%02d:00 Europe/Athens).' % (NIGHT_START_HOUR, NIGHT_END_HOUR),
+                'nightly': nightly_status()}
+    if remaining <= 0:
+        return {'submitted': 0, 'reason': 'Nightly target already met.',
+                'nightly': nightly_status()}
+    with s.database() as db:
+        series = db.execute('SELECT * FROM content_series ORDER BY created_at DESC LIMIT 1').fetchone()
+    if not series:
+        return {'submitted': 0, 'reason': 'No series exists yet.', 'nightly': nightly_status()}
+    approved = 0
+    with s.database() as db:
+        approved = int(db.execute("SELECT COUNT(*) AS n FROM content_ideas WHERE series_id=? AND status='approved'",
+                                  (series['id'],)).fetchone()['n'])
+    if approved < remaining and auto_approve():
+        with s.database() as db:
+            drafts = db.execute("SELECT id FROM content_ideas WHERE series_id=? AND status='draft' "
+                                "ORDER BY position LIMIT ?", (series['id'], remaining - approved)).fetchall()
+        for row in drafts:
+            try:
+                decide({'id': row['id'], 'action': 'approve'}, 'auto-approve')
+            except s.WorkflowError:
+                continue
+    if approved <= 0 and not auto_approve():
+        return {'submitted': 0, 'reason': 'No approved ideas and CONTENT_AUTO_APPROVE is off.',
+                'nightly': nightly_status()}
+    limit = min(int(max_submit), remaining)
+    try:
+        result = submit_batch({'series_id': series['id'], 'limit': limit}, actor)
+    except s.WorkflowError as error:
+        return {'submitted': 0, 'reason': str(error), 'nightly': nightly_status()}
+    return {'submitted': result['queued_count'], 'spend_usd': result['spend_usd'],
+            'reason': result['skipped'][0]['reason'] if result['skipped'] else '',
+            'nightly': nightly_status(), 'jobs': result['queued']}
+
+
+def nightly_run(limit=2, actor='operator'):
+    """Admin-triggered nightly pass (same rules as the worker)."""
+    return nightly_topup(max_submit=limit, actor=actor)
 
 
 def recover_stuck(older_than=600):

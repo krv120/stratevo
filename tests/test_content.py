@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from app import buffer_api, captions, content, content_library, media, video
+from app import buffer_api, captions, content, content_library, media, video, voice
 from app import suppliers as s
 from app.server import Handler
 from fal_stub import StubServer
@@ -71,7 +71,8 @@ class ContentPipelineTests(unittest.TestCase):
             'FAL_KEY': KEY, 'VIDEO_SPEND_LIMIT_USD': '5', 'VIDEO_MAX_JOB_USD': '1',
             'VIDEO_JOBS_PER_HOUR': '60', 'VIDEO_WEBHOOK_ENABLED': 'false',
             'CRON_SECRET': CRON, 'PUBLISHING_ENABLED': 'false', 'BUFFER_API_KEY': '',
-            'CONTENT_MEDIA_DIR': str(Path(self.tmp.name) / 'media'),
+            'CONTENT_MEDIA_DIR': str(Path(self.tmp.name) / 'media'), 'CONTENT_NIGHTLY_COUNT': '0',
+            'VOICE_ENABLED': 'false',
         }, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -135,7 +136,7 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertIn('READ THIS FIRST', document)
         dialogues = [line for line in document.splitlines() if line.startswith('Dialogue:')]
         self.assertGreaterEqual(len(dialogues), 3)
-        self.assertEqual(len([line for line in document.splitlines() if line.startswith('Style:')]), 2)
+        self.assertEqual(len([line for line in document.splitlines() if line.startswith('Style:')]), 3)
         for line in captions.phrases('Check tolerances before you pay a deposit today.'):
             self.assertLessEqual(len(line), captions.MAX_CAPTION_CHARS)
 
@@ -285,6 +286,89 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(code, 503)
         self.assertEqual(self.stub.submissions, [])
 
+    # --- voiceover --------------------------------------------------------
+    def test_voice_payloads_and_estimates(self):
+        plan = voice.estimate('x' * 220)
+        self.assertEqual(plan['model'], 'minimax-speech-hd')
+        self.assertAlmostEqual(plan['usd'], 0.022, places=3)
+        self.assertAlmostEqual(voice.estimate('x' * 220, 'kokoro')['usd'], 0.0044, places=4)
+        payload = voice._payload('minimax-speech-hd', 'hello', None)
+        self.assertEqual(payload['language_boost'], 'English')
+        self.assertEqual(payload['voice_setting']['voice_id'], voice.DEFAULT_VOICE)
+        self.assertEqual(payload['audio_setting']['format'], 'mp3')
+        self.assertIn('text', voice._payload('kokoro', 'hello', None))
+
+    def test_narration_script_is_hook_plus_body(self):
+        idea = {'hook': 'Nobody warns you about fast quotes.', 'script': 'Ask for the sampling plan first.'}
+        self.assertEqual(content.narration_script(idea),
+                         'Nobody warns you about fast quotes. Ask for the sampling plan first.')
+
+    def test_voiceover_is_mixed_into_the_clip_and_costed(self):
+        clip = make_clip(Path(self.tmp.name) / 'clip.mp4', 3)
+        audio = Path(self.tmp.name) / 'voice.mp3'
+        import imageio_ffmpeg
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-y', '-hide_banner', '-loglevel', 'error',
+                        '-f', 'lavfi', '-i', 'sine=frequency=660:duration=3',
+                        '-c:a', 'libmp3lame', '-b:a', '128k', str(audio)], check=True)
+        environment = {'VOICE_ENABLED': 'true', 'CONTENT_VOICE_LIMIT_USD': '3'}
+        with patch.dict(os.environ, environment):
+            with patch.object(voice, 'synthesize', lambda text, idea_id='': {
+                    'bytes': audio.read_bytes(), 'cost_usd': 0.02, 'characters': len(text),
+                    'model': 'minimax-speech-hd', 'voice': 'Deep_Voice_Man'}):
+                with patch.object(content, 'fal_download', lambda url: clip):
+                    series_id = self.series(1)
+                    code, body, _ = self.http('/api/admin/content/overview', cookie=self.admin())
+                    idea = json.loads(body)['ideas'][0]
+                    self.http('/api/admin/content/decide', {'id': idea['id'], 'action': 'approve'},
+                              cookie=self.admin())
+                    self.http('/api/admin/content/generate', {'series_id': series_id, 'limit': 1},
+                              cookie=self.admin())
+                    self.stub.complete(self.stub.submissions[0]['request_id'])
+                    report = content.tick('voice-worker', max_caption=1)
+        self.assertEqual(len(report['captions']), 1)
+        with s.database() as db:
+            row = db.execute('SELECT status,caption_error,media_asset_id FROM content_ideas').fetchone()
+        self.assertEqual(row['status'], 'ready_to_publish')
+        self.assertEqual(row['caption_error'], '')
+        with s.database() as db:
+            token = db.execute('SELECT token FROM media_assets WHERE id=?', (row['media_asset_id'],)).fetchone()
+        code, served, headers = self.http('/media/' + token['token'] + '.mp4')
+        self.assertEqual(code, 200)
+        self.assertTrue(served.find(b'mvhd') > 0)
+
+    # --- nightly cadence --------------------------------------------------
+    def test_nightly_target_respects_the_window_and_the_budget(self):
+        series_id = self.series(8)
+        with patch.dict(os.environ, {'CONTENT_NIGHTLY_COUNT': '6', 'CONTENT_AUTO_APPROVE': 'true'}):
+            zone = content._zone()
+            night = datetime.datetime.now(zone).replace(hour=23, minute=0, second=0, microsecond=0)
+            with patch.object(content, 'inside_night', lambda now=None: True):
+                with patch.object(content, 'generated_tonight', lambda now=None: 0):
+                    first = content.nightly_topup(max_submit=2)
+                    second = content.nightly_topup(max_submit=2)
+            self.assertEqual(first['submitted'], 2)
+            self.assertEqual(second['submitted'], 2)
+            self.assertEqual(len(self.stub.submissions), 4)
+            with patch.object(content, 'inside_night', lambda now=None: False):
+                closed = content.nightly_topup(max_submit=2)
+            self.assertEqual(closed['submitted'], 0)
+            self.assertIn('Outside the nightly window', closed['reason'])
+            with patch.object(content, 'inside_night', lambda now=None: True):
+                with patch.object(content, 'generated_tonight', lambda now=None: 6):
+                    done = content.nightly_topup(max_submit=2)
+            self.assertEqual(done['submitted'], 0)
+            self.assertIn('already met', done['reason'])
+
+    def test_nightly_never_exceeds_the_monthly_limit(self):
+        series_id = self.series(8)
+        with patch.dict(os.environ, {'CONTENT_NIGHTLY_COUNT': '6', 'CONTENT_AUTO_APPROVE': 'true',
+                                     'VIDEO_SPEND_LIMIT_USD': '1'}):
+            with patch.object(content, 'inside_night', lambda now=None: True):
+                with patch.object(content, 'generated_tonight', lambda now=None: 0):
+                    result = content.nightly_topup(max_submit=6)
+        self.assertEqual(result['submitted'], 2)
+        self.assertIn('spending limit', result['reason'])
+
     # --- scheduling -------------------------------------------------------
     def test_slots_are_spread_across_thirty_days_in_athens(self):
         slots = content.build_slots(40, 30)
@@ -293,15 +377,16 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(stamps, sorted(stamps))
         zone = content._zone()
         local = [datetime.datetime.fromtimestamp(stamp, zone) for stamp in stamps]
-        self.assertTrue(all((item.hour, item.minute) in ((12, 30), (19, 0)) for item in local))
+        self.assertTrue(all((item.hour, item.minute) in content.DEFAULT_SLOT_HOURS for item in local))
         tomorrow = (datetime.datetime.now(zone) + datetime.timedelta(days=1)).date()
         self.assertGreaterEqual(local[0].date(), tomorrow)
         self.assertLessEqual((local[-1].date() - local[0].date()).days, 29)
-        self.assertEqual(sum(1 for item in local if item.hour == 12), 20)
         self.assertEqual(len({(item.year, item.month, item.day) for item in local}), 30)
         # Winter time is +2, summer time is +3: the stored UTC epoch follows the zone.
         january = content.build_slots(2, 2, start=datetime.datetime(2027, 1, 10, tzinfo=zone))
-        self.assertEqual(january[0][0] % 86400, (10 * 3600 + 30 * 60) % 86400)
+        hour, minute = content.DEFAULT_SLOT_HOURS[0]
+        # 09:00 Athens in January is UTC+2, so the epoch is 07:00 UTC.
+        self.assertEqual(january[0][0] % 86400, ((hour - 2) * 3600 + minute * 60) % 86400)
 
     def test_schedule_requires_a_rendered_video(self):
         series_id = self.series(4)

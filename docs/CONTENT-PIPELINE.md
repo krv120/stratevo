@@ -13,6 +13,8 @@ the local test suite prove from what still needs production credentials.
 | Europe/Athens 30-day slot planning | Yes (DST-aware tests) | — |
 | Buffer `createPost` request shape | Yes (payload assertions) | A real TikTok/Instagram channel and a returned post id |
 | Worker tick, leases, retries, crash recovery | Yes | A scheduler that calls it every few minutes |
+| Voiceover generation + mix (narration under the music bed) | Yes, against the fal stub | One real TTS call and its charge |
+| Nightly cadence (6 per night, 6 slots a day, end card) | Yes | — |
 | PostgreSQL migration `009_content_pipeline.sql` | Applied to an isolated PostgreSQL instance (`pgserver`) with BYTEA media round-trip and slot planning | Applied to the production database |
 
 ---
@@ -147,6 +149,31 @@ limit**, which is what Buffer receives when it downloads `/media/<token>.mp4`.
 Media responses are cached immutably (`s-maxage`) per token, so the edge serves
 repeat downloads instead of the function.
 
+### Voiceover, end card and nightly cadence
+
+Three additions make the output match the reference style (a narrated,
+caption-heavy reseller clip that ends by naming the business):
+
+* **Narration** — `app/voice.py` sends `hook + script` to `fal-ai/minimax/speech-2.8-hd`
+  ($0.10 / 1,000 characters, stock voices, emotion control) with
+  `fal-ai/kokoro/american-english` ($0.02 / 1,000) as the cheap alternative.
+  `VOICE_ENABLED=true` turns it on; `CONTENT_VOICE_LIMIT_USD` is a separate
+  monthly ceiling recorded in `content_costs`. A voice failure never loses the
+  clip: it is captioned silently and the reason is stored on the idea.
+* **Mix** — in `app/captions.py`: narration leads, the model's own audio is
+  ducked to 12 % as a bed (`amix` + `alimiter`), or the narration is padded to
+  the clip length when the model returned no audio. A 4-second read over a
+  5-second shot no longer cuts the picture.
+* **End card** — the last ~2.6 s of every clip shows `CONTENT_CTA`
+  (default `stratevo.online`) in place of the hook, so each video advertises
+  the business without covering the captions.
+* **Nightly cadence** — `CONTENT_NIGHTLY_COUNT=6` with the window 20:00–09:00
+  Europe/Athens. The worker submits 2 clips per pass until the night's target
+  is met, which also stays under `VIDEO_JOBS_PER_HOUR`. `CONTENT_AUTO_APPROVE=true`
+  lets it approve drafts itself, so the whole night runs unattended;
+  `false` (default) keeps a human gate. Posts then spread across six daily
+  slots (`CONTENT_SLOT_LOCAL`, default 09:00/11:30/14:00/16:30/19:00/21:00).
+
 ---
 
 ## 4. Publishing through Buffer — verified requirements
@@ -242,18 +269,39 @@ upscale, and it returns audio-ready MP4s. 1080P is not worth double the cost for
 a talking-caption clip; 480P is acceptable to halve the bill if the first clips
 look soft.
 
+Cost of the **6-per-night** cadence (180 clips a month, 10 s each = 1,800 s):
+
+| Item | 768P | 480P |
+| --- | --- | --- |
+| Video, 180 × 10 s (list) | $72.00 | $45.00 |
+| Voiceover, 180 × 220 chars at MiniMax HD | $3.96 | $3.96 |
+| Voiceover with Kokoro instead | $0.79 | $0.79 |
+| Buffer Essentials, 2 channels | $12.00 | $12.00 |
+| Vercel Hobby + Neon/Supabase + free cron | $0 | $0 |
+| **Total** | **$87.96 (≈ €81)** | **$60.96 (≈ €56)** |
+
+Over the €80 ceiling at 768P with 180 clips, so the defaults that ship are:
+
+* **6 a night, 480P, Kokoro voice → ≈ €56/month.** Vertical 480P is upscaled by
+  the caption renderer, so it still fills a 1080x1920 frame; 480P is noticeably
+  softer than 768P, which is the trade-off for staying well inside budget.
+* **3 a night at 768P with MiniMax HD → ≈ €54/month**, if you would rather have
+  fewer, sharper clips. Set `CONTENT_NIGHTLY_COUNT=3` and keep 768P.
+* **90 clips a month at 768P with Kokoro → ≈ €46/month.**
+
 Monthly total for one full 40-video run:
 
 | Item | Cost |
 | --- | --- |
 | 40 clips × 10 s at 768P (list) | $16.00 |
+| Voiceover, 40 × 220 chars at MiniMax HD | $0.88 |
 | Buffer Essentials, 2 channels | $12.00 |
 | Vercel Hobby + Neon/Supabase free tier | $0 |
 | Scheduler (cron-job.org / Cloudflare) | $0 |
-| **Total** | **~$28 (≈ €26)** |
+| **Total** | **~$29 (≈ €27)** |
 
-Inside the €20–30 target. If you accept 480P, the same run is ~$22. Promo rates
-bring it to ~$22 even at 768P until 2026-10-31.
+If you accept 480P, the same run is ~$23. Once the promo ends on 2026-10-31 the
+list prices above apply.
 
 Guard rails that stay in place:
 
@@ -308,6 +356,14 @@ documented action (§8).
    | `BUFFER_QUEUE_CAP` | `10` (free) / `50` (Essentials) | stops the worker at the real queue depth |
    | `CONTENT_SLOT_LOCAL` | `12:30,19:00` | posting times in Europe/Athens |
    | `CONTENT_CAPTION_PRESET` | `veryfast` | slow CPU: `ultrafast` |
+   | `CONTENT_NIGHTLY_COUNT` | `6` | clips generated per night |
+   | `CONTENT_AUTO_APPROVE` | `false` → `true` for unattended nights | human review gate |
+   | `CONTENT_SLOT_LOCAL` | `09:00,11:30,14:00,16:30,19:00,21:00` | six posting moments a day |
+   | `CONTENT_CTA` | `stratevo.online` | end card on every clip |
+   | `VOICE_ENABLED` | `true` | narration on/off |
+   | `VOICE_MODEL` | `minimax-speech-hd` (or `kokoro`) | quality vs price |
+   | `VOICE_ID` | `Deep_Voice_Man` | stock voice |
+   | `CONTENT_VOICE_LIMIT_USD` | `3.00` | voiceover ceiling |
    | `DATABASE_URL`, `STRICT_PERSISTENT_DB` | existing values | durable storage is mandatory |
 
    Keep `PUBLISHING_ENABLED=false` until §9.
@@ -406,7 +462,35 @@ anything else.
   it, a bare container may not.
 * **TikTok/Instagram account eligibility** and Buffer plan limits can only be
   confirmed inside Buffer.
-* **Music**: clips have model audio only. Adding a licensed track is out of
-  scope.
+* **Music**: clips have model audio only (plus narration). A licensed trending
+  track cannot be attached through the Buffer API — add it in the TikTok app
+  before publishing, or leave the narration and use the TikTok library sound at
+  the cost of automatic publishing.
+* **TikTok's "original sound" trend**: the reference clips ride trending audio
+  and a talking-head/hands-on camera. This pipeline is faceless b-roll plus
+  narration; matching the *look* of a specific creator needs either your own
+  footage or a paid avatar/lip-sync model (HeyGen, Synthesia), which is outside
+  the €80 budget.
 * **Cost per minute on fal** is list-price based; only the first real job will
   confirm it.
+
+---
+
+## 12. What you must connect (the short answer)
+
+| # | Account / key | Where | Cost | Needed for |
+| --- | --- | --- | --- | --- |
+| 1 | **fal.ai** account + `FAL_KEY` | fal.ai → Keys → Vercel env | pay-as-you-go, ~$50–75/mo at 6/night | video generation + voiceover |
+| 2 | **Buffer** account (Essentials, 2 channels) | buffer.com → Settings → API → personal key → `BUFFER_API_KEY` | $12/mo (Free plan works, capped at 10 queued posts per channel) | scheduling to TikTok + Instagram |
+| 3 | **TikTok** Business or Creator account | connect inside Buffer (not here) | free | TikTok posting |
+| 4 | **Instagram** Business or Creator account | connect inside Buffer | free | Reels posting |
+| 5 | **PostgreSQL** (Neon / Supabase / Vercel Postgres) | `DATABASE_URL`, `STRICT_PERSISTENT_DB=true` | free tier is enough | jobs, media storage, schedule |
+| 6 | **Vercel** project (already deployed) | env vars in Production | Hobby $0 | hosting + the worker function |
+| 7 | **cron-job.org** or Cloudflare cron (free) | calls `/api/jobs/content-tick` every 5 min with `Authorization: Bearer $CRON_SECRET` | $0 | unattended nights |
+| 8 | Your own `CRON_SECRET` | random 32+ chars in Vercel | — | worker authentication |
+
+Buffer connects the channels, not this app: this app only needs the Buffer
+personal API key. Instagram must be a Professional (Business/Creator) account to
+publish automatically; personal accounts only get notification-based posting.
+TikTok must be a Business/Creator account. Both are connected at
+buffer.com → Channels → Connect Channel.

@@ -163,13 +163,15 @@ def _header(width, height):
         '{main}\n'
         'Style: Hook,{font},84,&H0000E8FF,&H000000FF,&H00000000,&H80000000,'
         '-1,0,0,0,100,100,0,0,1,8,4,8,80,80,{hook_v},1\n'
+        'Style: Cta,{font},58,&H00FFFFFF,&H000000FF,&H00000000,&HA0000000,'
+        '-1,0,0,0,100,100,0,0,3,0,0,8,80,80,{hook_v},1\n'
         '\n'
         '[Events]\n'
         'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
     ).format(w=width, h=height, main=style_main, font=font, hook_v=int(height * 0.075))
 
 
-def build_ass(script, duration_seconds, hook='', *, width=OUTPUT_WIDTH, height=OUTPUT_HEIGHT):
+def build_ass(script, duration_seconds, hook='', *, cta='', width=OUTPUT_WIDTH, height=OUTPUT_HEIGHT):
     """Return an ASS subtitle document for one clip."""
     try:
         duration = float(duration_seconds)
@@ -183,6 +185,7 @@ def build_ass(script, duration_seconds, hook='', *, width=OUTPUT_WIDTH, height=O
     spans = _timeline(lines, duration)
     events = []
     hook_text = _escape(hook)[:90]
+    hook_end = 0.0
     if hook_text:
         hook_end = min(duration, max(2.4, min(4.0, duration * 0.6)))
         # Long hooks wrap into four lines at 84px. Shrink, never re-flow past
@@ -190,6 +193,14 @@ def build_ass(script, duration_seconds, hook='', *, width=OUTPUT_WIDTH, height=O
         size = 84 if len(hook_text) <= 32 else 72 if len(hook_text) <= 48 else 62
         events.append('Dialogue: 1,{start},{end},Hook,,0,0,0,,{{\\fs{size}}}{text}\\N'.format(
             start=_ass_time(0), end=_ass_time(hook_end), text=hook_text.upper(), size=size))
+    cta_text = _escape(cta)[:40]
+    if cta_text:
+        # End card: the site name takes the hook's place once the hook clears,
+        # so it never covers the captions or the subject.
+        cta_start = max(hook_end, duration - 2.6)
+        if duration - cta_start > 0.6:
+            events.append('Dialogue: 2,{start},{end},Cta,,0,0,0,,{text}'.format(
+                start=_ass_time(cta_start), end=_ass_time(duration), text=cta_text.upper()))
     for line, (start, end) in zip(lines, spans):
         if end <= start:
             continue
@@ -214,10 +225,14 @@ def probe(path):
             'height': int(size.group(2)) if size else 0}
 
 
-def render(source, destination, script, duration_seconds, hook='', *, crf=20, preset='veryfast'):
+def render(source, destination, script, duration_seconds, hook='', *, cta='', voice=None,
+           crf=20, preset='veryfast'):
     """Burn captions into ``source``, writing a 1080x1920 MP4 to ``destination``.
 
     ``source`` may be a local path, or bytes (written to a scratch file).
+    ``voice`` is an optional MP3/WAV byte string: when present it leads the
+    mix and the clip's own audio is ducked to a quiet bed, which is what makes
+    the result sound like a narrated TikTok rather than a stock loop.
     Returns probe metadata for the output.
     """
     executable = _ffmpeg()
@@ -231,19 +246,42 @@ def render(source, destination, script, duration_seconds, hook='', *, crf=20, pr
             local = str(source)
         if not os.path.exists(local):
             raise CaptionError('The source video could not be read for captions.')
+        voice_path = ''
+        if voice:
+            if not isinstance(voice, (bytes, bytearray)) or len(voice) < 512:
+                raise CaptionError('The voiceover file was empty.')
+            voice_path = os.path.join(workdir, 'voice.mp3')
+            with open(voice_path, 'wb') as handle:
+                handle.write(voice)
         info = probe(local)
         duration = duration_seconds or info['duration']
         if not duration:
             raise CaptionError('The source video has no readable duration.')
         ass_path = os.path.join(workdir, 'captions.ass')
         with open(ass_path, 'w', encoding='utf-8') as handle:
-            handle.write(build_ass(script, duration, hook))
+            handle.write(build_ass(script, duration, hook, cta=cta))
         output = os.path.join(workdir, 'output.mp4')
         filters = ('scale={w}:{h}:force_original_aspect_ratio=decrease,'
                    'pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,subtitles=captions.ass'
                    ).format(w=OUTPUT_WIDTH, h=OUTPUT_HEIGHT)
         command = [executable, '-y', '-hide_banner', '-loglevel', 'error', '-i', local]
-        if info['has_audio']:
+        if voice_path:
+            command += ['-i', voice_path]
+        if info['has_audio'] and voice_path:
+            # Narration on top, the model's own audio kept as a quiet bed so the
+            # clip still has room tone instead of dead silence.
+            command += ['-filter_complex',
+                        '[0:a]volume=0.12[a0];[1:a]adelay=200|200[a1];'
+                        '[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,'
+                        'alimiter=limit=0.95[aout]',
+                        '-map', '0:v:0', '-map', '[aout]', '-c:a', 'aac', '-b:a', '160k']
+        elif voice_path:
+            # Pad the narration to the full clip length instead of shortening the
+            # video: a 4 s read over a 5 s shot must not cut the picture.
+            command += ['-map', '0:v:0', '-map', '1:a:0',
+                        '-af', 'apad=whole_dur=' + str(duration) + ',alimiter=limit=0.95',
+                        '-c:a', 'aac', '-b:a', '160k']
+        elif info['has_audio']:
             command += ['-map', '0:v:0', '-map', '0:a:0', '-c:a', 'aac', '-b:a', '128k']
         else:
             command += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
