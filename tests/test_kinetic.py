@@ -2,14 +2,14 @@
 
 These tests really render: Pillow draws actual frames and the bundled ffmpeg
 encodes them. They keep the range short (a fraction of a second) so the suite
-stays fast; the full 19.73 s episode is rendered by the worker, not here.
+stays fast; the full 20.60 s episode is rendered by the worker, not here.
 """
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from app import captions, kinetic, kinetic_series, video
+from app import captions, kinetic, kinetic_audio, kinetic_series, video
 from app import suppliers as s
 
 
@@ -23,7 +23,7 @@ class KineticRendererTests(unittest.TestCase):
         self.assertTrue(status['ready'])
         self.assertEqual(status['size'], [1080, 1920])
         self.assertEqual(status['fps'], 30)
-        self.assertAlmostEqual(status['duration'], 19.73, places=2)
+        self.assertAlmostEqual(status['duration'], 20.60, places=2)
         self.assertEqual(status['episodes'], 19)
         self.assertTrue(all(status['fonts'].values()))
 
@@ -115,6 +115,132 @@ class KineticRendererTests(unittest.TestCase):
             importlib.reload(kinetic)
 
 
+class KineticBlueprintTests(unittest.TestCase):
+    """The 19 episodes, their copy limits and their 26-layer sound design."""
+
+    def test_every_episode_meets_the_brief(self):
+        self.assertEqual(len(kinetic_series.EPISODES), 19)
+        for data in kinetic_series.EPISODES:
+            self.assertEqual(kinetic_series.validate(data), [], data['hook'])
+            blueprint = data['audio_blueprint']
+            self.assertTrue(24 <= blueprint['layer_count'] <= 26)
+            self.assertEqual(len(blueprint['layers']), blueprint['layer_count'])
+            self.assertAlmostEqual(blueprint['duration'], 20.60, places=2)
+            # The lowpass tail always closes the clip: 19.90 s for 0.70 s.
+            tail = blueprint['layers'][-1]
+            self.assertEqual((tail['start_time'], tail['duration']), (19.90, 0.70))
+            self.assertEqual(tail['kind'], 'tail')
+            starts = [layer['start_time'] for layer in blueprint['layers']]
+            self.assertEqual(starts, sorted(starts))
+            gaps = [round(b - a, 2) for a, b in zip(starts, starts[1:])]
+            self.assertLessEqual(max(gaps), 1.30)
+            self.assertLessEqual(sum(1 for gap in gaps if gap > 0.90), 1)
+            for layer in blueprint['layers']:
+                self.assertTrue(layer['sfx_prompt'].strip())
+                self.assertGreater(layer['duration'], 0.0)
+                self.assertLessEqual(layer['start_time'] + layer['duration'], 20.60)
+                self.assertIn(layer['scene'],
+                              ('hook', 'illusions', 'chat', 'wipe', 'questions', 'equation', 'signoff'))
+
+    def test_copy_limits_match_the_viral_rules(self):
+        for data in kinetic_series.EPISODES:
+            self.assertLessEqual(len(data['hook'].split()), 10)
+            for item in data['illusions']:
+                self.assertLessEqual(len(item.split()), 3)
+                self.assertLessEqual(len(item), 22)
+            for item in data['questions']:
+                self.assertLessEqual(len(item), 42)
+            self.assertLessEqual(kinetic_series.voice_seconds(data), kinetic.DURATION - 0.7)
+            caption = data['metadata']['caption']
+            self.assertIn('stratevo.online', caption)
+            self.assertIn('\u2260', caption)
+
+    def test_episode_data_carries_both_tts_scripts(self):
+        data = kinetic_series.episode(3)
+        payload = data['episode_data']
+        self.assertIn('<#0.35#>', payload['voice_script'])
+        self.assertIn('<break time="0.35s"/>', payload['tts_script'])
+        self.assertNotIn('<#', payload['tts_script'])
+        self.assertEqual(payload['equation']['left'], data['left'])
+        self.assertEqual([question['level'] for question in payload['questions']],
+                         ['operational blindspot: you cannot see who runs the line',
+                          'quality failure: the batch that ships is not the batch you approved',
+                          'catastrophic loss: the money, the cargo, or the liability is yours alone'])
+        self.assertAlmostEqual(payload['hook_lands_at'], 1.35, places=2)
+
+
+class KineticAudioTests(unittest.TestCase):
+    """The blueprint is rendered to a real scratch stem: free and deterministic."""
+
+    def test_scratch_stem_covers_the_whole_clip(self):
+        blueprint = kinetic_series.episode(1)['audio_blueprint']
+        with tempfile.TemporaryDirectory() as workdir:
+            stem = Path(workdir) / 'scratch.wav'
+            kinetic_audio.synthesize(blueprint, stem)
+            info = kinetic.probe(stem)
+            self.assertAlmostEqual(info['duration'], 20.60, delta=0.05)
+            self.assertGreater(kinetic_audio.peak(stem), 0.2)
+            again = Path(workdir) / 'again.wav'
+            kinetic_audio.synthesize(blueprint, again)
+            self.assertEqual(stem.read_bytes(), again.read_bytes())
+
+    def test_mix_pads_the_voice_and_keeps_late_effects(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            workdir = Path(workdir)
+            voice = workdir / 'voice.mp3'
+            subprocess.run([ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error',
+                            '-f', 'lavfi', '-i', 'sine=frequency=220:duration=0.4',
+                            '-c:a', 'libmp3lame', str(voice)], check=True, timeout=120)
+            stem = workdir / 'scratch.wav'
+            kinetic_audio.synthesize(kinetic_series.episode(2)['audio_blueprint'], stem)
+            mixed = kinetic.mix_audio(workdir / 'mix.wav', duration=20.60,
+                                      voice=voice, sfx=[(stem, 0.0)])
+            info = kinetic.probe(mixed)
+            self.assertAlmostEqual(info['duration'], 20.60, delta=0.05)
+            self.assertTrue(info['has_audio'])
+
+    def test_bed_stem_is_a_quiet_ambient_floor(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            bed = kinetic.bed_stem(Path(workdir) / 'bed.wav', duration=2.0)
+            self.assertAlmostEqual(kinetic.probe(bed)['duration'], 2.0, delta=0.05)
+            self.assertGreater(kinetic_audio.peak(bed), 0.001)
+
+
+class KineticQueueExportTests(unittest.TestCase):
+    """The Arena_AI_Queue export is pending-only and never overwrites work."""
+
+    def _script(self):
+        import importlib.util
+        path = Path(__file__).resolve().parents[1] / 'scripts' / 'export_kinetic_queue.py'
+        spec = importlib.util.spec_from_file_location('export_kinetic_queue', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_queue_has_one_pending_row_per_episode(self):
+        module = self._script()
+        queue = module.rows()
+        self.assertEqual(len(queue), 19)
+        self.assertEqual({row['status'] for row in queue}, {'pending'})
+        self.assertEqual([row['episode'] for row in queue], list(range(1, 20)))
+        self.assertEqual({row['sfx_layers'] for row in queue}, {26})
+        self.assertEqual({row['duration_seconds'] for row in queue}, {'20.60'})
+        self.assertTrue(all('stratevo.online' in row['caption'] for row in queue))
+        with tempfile.TemporaryDirectory() as workdir:
+            out = module.write_csv(Path(workdir) / 'Arena_AI_Queue.csv', queue)
+            text = out.read_text(encoding='utf-8')
+            self.assertEqual(len(text.strip().splitlines()), 20)     # header + 19
+            self.assertIn('pending', text)
+
+    def test_export_refuses_to_overwrite_published_rows(self):
+        module = self._script()
+        with tempfile.TemporaryDirectory() as workdir:
+            destination = Path(workdir) / 'Arena_AI_Queue.csv'
+            destination.write_text('episode,status\n1,published\n', encoding='utf-8')
+            with self.assertRaises(SystemExit):
+                module.write_csv(destination)
+
+
 class KineticSeriesTests(unittest.TestCase):
     def test_episodes_cycle_and_are_distinct(self):
         self.assertEqual(len(kinetic_series.EPISODES), 19)
@@ -134,7 +260,7 @@ class KineticSeriesTests(unittest.TestCase):
         self.assertTrue(text.rstrip().endswith('.'))
         # Questions are spoken naturally, not shouted or re-capitalised.
         self.assertNotIn('? ', text.lower().split('can\u2019t')[0].replace('?', ''))
-        self.assertIn('who actually makes the product?', text.lower())
+        self.assertIn('who actually runs the floor?', text.lower())
 
     def test_copy_for_an_idea_matches_the_episode(self):
         row = kinetic_series.copy_for(5)

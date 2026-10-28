@@ -18,7 +18,8 @@ import json
 import os
 import uuid
 
-from app import buffer_api, captions, content_library, kinetic, kinetic_series, media, video, voice
+from app import (buffer_api, captions, content_library, kinetic, kinetic_audio, kinetic_series,
+                 media, video, voice)
 from app import suppliers as s
 
 SCHEMA = '''
@@ -560,12 +561,26 @@ def render_kinetic(idea):
             # Never block the clip on the voice provider: a silent episode still
             # ships, and the reason is recorded on the idea.
             voice_note = str(error)[:300]
+    # The 26-layer blueprint is rendered to a free scratch stem, so the clip has
+    # the designed transients even with no paid SFX generation and no narration.
+    scratch = None
+    sfx = []
+    if os.environ.get('CONTENT_KINETIC_SFX', 'true').strip().lower() != 'false':
+        try:
+            scratch = root / (idea['id'] + '-sfx.wav')
+            kinetic_audio.synthesize(data['audio_blueprint'], scratch)
+            sfx = [(scratch, 0.0)]
+        except Exception:                       # never block a clip on the scratch track
+            scratch = None
+            sfx = []
     try:
         info = kinetic.render(data, target, index=position, cta=cta_text(),
-                              audio=narration, crf=max(16, min(crf, 30)))
+                              audio=narration, sfx=sfx, bed=not narration and not sfx,
+                              crf=max(16, min(crf, 30)))
         if target.stat().st_size > MAX_SERVED_BYTES:
             info = kinetic.render(data, target, index=position, cta=cta_text(),
-                                  audio=narration, crf=min(30, max(16, crf) + 6), preset='faster')
+                                  audio=narration, sfx=sfx, bed=not narration and not sfx,
+                                  crf=min(30, max(16, crf) + 6), preset='faster')
         if target.stat().st_size > MAX_SERVED_BYTES:
             target.unlink(missing_ok=True)
             raise s.WorkflowError('The rendered clip is larger than the 4.5 MB response limit. '
@@ -575,6 +590,8 @@ def render_kinetic(idea):
         target.unlink(missing_ok=True)
         if narration is not None:
             narration.unlink(missing_ok=True)
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
     set_status(idea['id'], 'ready_to_publish', media_asset_id=asset['id'],
                source_video_url='kinetic://episode-' + str(position), caption_error=voice_note)
     return {'idea_id': idea['id'], 'asset': asset, 'video': info, 'renderer': 'kinetic',

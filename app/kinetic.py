@@ -32,7 +32,7 @@ from app import captions
 
 W, H = 1080, 1920
 FPS = 30
-DURATION = 19.73
+DURATION = 20.60
 SAFE = (86, 168, W - 86, H - 240)          # central ~80 %, above platform chrome
 
 BLACK = (0, 0, 0)
@@ -50,7 +50,7 @@ DISPLAY = 'Anton-Regular.ttf'
 BODY = 'Inter-Black.ttf'
 
 # Scene cuts, in seconds, from the client's storyboard.
-CUTS = (0.0, 2.50, 6.50, 8.00, 9.50, 13.00, 15.80, DURATION)
+CUTS = (0.0, 2.60, 6.70, 8.30, 9.90, 13.60, 16.50, DURATION)
 SCENE_NAMES = ('hook', 'illusions', 'chat', 'wipe', 'questions', 'equation', 'signoff')
 
 # The brand mark from web/favicon.svg, in its own 48x48 coordinate space.
@@ -507,6 +507,11 @@ class Episode:
         self.left = data['left']
         self.right = data['right']
         self.illusions = data['illusions']
+        # Optional per-episode labels, so a tile says what the episode is about
+        # while the master keeps the reference's wording.
+        self.tile_title = (data.get('tile_title') or data['illusions'][0]).upper()
+        self.chat_heading = (data.get('chat_heading') or data['illusions'][2]).upper()
+        self.equation_top = data.get('left') or ''
         self._wipe_base = None
 
     # -- scene 1: hook + defacement ---------------------------------------
@@ -638,13 +643,14 @@ class Episode:
             paste(canvas, sprite, position, scale=pop(local, 0.12 + index * 0.16),
                   alpha=min(1.0, appear * 1.4) * depth)
 
-        title = text_sprite('GREAT PHOTOS' if local < 2.4 else 'LOOKS CREDIBLE', 96, WHITE,
+        first_title = self.tile_title or 'GREAT PHOTOS'
+        title = text_sprite(first_title if local < 2.7 else 'LOOKS CREDIBLE', 96, WHITE,
                             DISPLAY, 10, 900)
         paste(canvas, title, (W / 2, 470), scale=pop(local, 0.05), alpha=ramp(local, 0.05, 0.2))
-        if local > 2.2:
-            caption = text_sprite('PROFILE', 132, EMERALD, DISPLAY, 22, 900)
-            paste(canvas, caption, (centre[0], centre[1]), scale=pop(local, 2.2, 0.35),
-                  alpha=ramp(local, 2.2, 2.5))
+        if local > 2.6:
+            caption = text_sprite(self.equation_top, 132, EMERALD, DISPLAY, 22, 900)
+            paste(canvas, caption, (centre[0], centre[1]), scale=pop(local, 2.6, 0.35),
+                  alpha=ramp(local, 2.6, 2.9))
         return canvas
 
     # -- scene 3: fast replies chat ---------------------------------------
@@ -655,7 +661,7 @@ class Episode:
                               colour=(235, 235, 235))
         canvas.paste(stroke, (0, 0), stroke)
 
-        heading = text_sprite('FAST REPLIES', 104, WHITE, DISPLAY, 14, 900)
+        heading = text_sprite(self.chat_heading, 104, WHITE, DISPLAY, 14, 900)
         paste(canvas, heading, (W / 2, 300), scale=pop(local, 0.0), alpha=ramp(local, 0.0, 0.12))
 
         card_w, card_h = 520, 780
@@ -812,7 +818,7 @@ class Episode:
         local = t - CUTS[6]
         canvas = Image.new('RGB', (W, H), BLACK)
         fade_in = ease_out(ramp(local, 0.0, 0.5))
-        fade_out = 1.0 - ramp(local, 3.35, 3.93)
+        fade_out = 1.0 - ramp(local, 3.52, CUTS[7] - CUTS[6] - 0.02)
         mark = metallic_logo(360)
         scale = 0.82 + 0.18 * fade_in
         # Specular sweep across the chrome bevels.
@@ -914,6 +920,77 @@ def segment(episode, start, end, destination, fps=FPS, crf=19, preset='veryfast'
     return total
 
 
+def bed_stem(destination, duration=DURATION, sample_rate=48000):
+    """A procedural ambient bed: low sub drone plus a brown-noise floor.
+
+    Used when a clip has no narration and no generated SFX, so an episode is
+    never dead silent. Deterministic, no sample files, no API call.
+    """
+    fade_out = max(0.4, min(1.4, duration * 0.08))
+    graph = ("[0:a]volume=0.30[a0];"
+             "[1:a]lowpass=f=190,volume=0.55[a1];"
+             "[a0][a1]amix=inputs=2:duration=longest:normalize=0,"
+             "afade=t=in:st=0:d=0.9,afade=t=out:st=%.2f:d=%.2f,"
+             "alimiter=limit=0.9[out]" % (duration - fade_out, fade_out))
+    command = [_ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error',
+               '-f', 'lavfi', '-i', 'sine=frequency=42:sample_rate=%d:duration=%.3f' % (sample_rate, duration),
+               '-f', 'lavfi', '-i', 'anoisesrc=color=brown:amplitude=0.05:sample_rate=%d:duration=%.3f'
+               % (sample_rate, duration),
+               '-filter_complex', graph, '-map', '[out]',
+               '-t', '%.3f' % duration, '-ar', str(sample_rate), '-ac', '2',
+               '-c:a', 'pcm_s16le', str(destination)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
+    if result.returncode != 0 or not Path(destination).exists():
+        raise RenderError('Could not build the ambient bed: ' + (result.stderr or '').strip()[-300:])
+    return Path(destination)
+
+
+def mix_audio(destination, duration=DURATION, voice=None, sfx=(), bed=False,
+              voice_gain=1.0, sfx_gain=0.9, sample_rate=48000):
+    """Mix narration and timed SFX into one stem of exactly ``duration`` seconds.
+
+    ``sfx`` is a sequence of ``(path, start_seconds)`` pairs. Each effect is
+    delayed to its timestamp with ``adelay`` and summed with ``amix`` (no
+    normalisation, so adding layers does not duck the voice). The result is then
+    padded to the full picture length and trimmed to it, so a short read or a
+    clip with effects only past the voice never shortens the video.
+
+    Returns the path to a 48 kHz stereo WAV.
+    """
+    sources = []
+    if voice:
+        sources.append((str(voice), 0.0, voice_gain))
+    for item in sfx or ():
+        path, start = item
+        sources.append((str(path), max(0.0, float(start)), sfx_gain))
+    sources = [item for item in sources if Path(item[0]).exists()]
+    if not sources:
+        if not bed:
+            return None
+        return bed_stem(destination, duration, sample_rate)
+
+    command = [_ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error']
+    for path, _, _ in sources:
+        command += ['-i', path]
+    chains = []
+    labels = []
+    for index, (_, start, gain) in enumerate(sources):
+        delay = int(round(start * 1000))
+        chains.append('[%d:a]adelay=%d|%d,volume=%.3f,apad=whole_dur=%.3f[a%d]'
+                      % (index, delay, delay, gain, duration, index))
+        labels.append('[a%d]' % index)
+    graph = ';'.join(chains) + ';' + ''.join(labels) + \
+        'amix=inputs=%d:duration=longest:normalize=0,atrim=0:%.3f,alimiter=limit=0.95[out]' % (
+            len(sources), duration)
+    command += ['-filter_complex', graph, '-map', '[out]',
+                '-t', '%.3f' % duration, '-ar', str(sample_rate), '-ac', '2',
+                '-c:a', 'pcm_s16le', str(destination)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0 or not Path(destination).exists():
+        raise RenderError('Could not mix the soundtrack: ' + (result.stderr or '').strip()[-300:])
+    return Path(destination)
+
+
 def assemble(segments, destination, audio=None, fps=FPS, duration=None):
     """Concatenate segments and mux the soundtrack into the final MP4.
 
@@ -955,10 +1032,23 @@ def probe(path):
 
 
 def render(data, destination, index=1, cta='stratevo.online', brand='STRATEVO', audio=None,
-           fps=FPS, chunk_seconds=5.0, crf=20, preset='veryfast'):
-    """Render one complete episode in a single call (used by tests and CLI)."""
+           fps=FPS, chunk_seconds=5.0, crf=20, preset='veryfast', voice=None, sfx=(),
+           bed=False):
+    """Render one complete episode in a single call (used by tests and CLI).
+
+    ``voice`` is an audio file or bytes for the narration, ``sfx`` a list of
+    ``(path, start_seconds)`` effects. Both are mixed with :func:`mix_audio`.
+    With neither, ``bed=True`` lays a quiet ambient stem instead of silence.
+    """
     episode = Episode(data, index, cta, brand)
     with tempfile.TemporaryDirectory(prefix='stratevo-kinetic-') as workdir:
+        workdir_path = Path(workdir)
+        if voice is not None and isinstance(voice, (bytes, bytearray)):
+            written = workdir_path / 'voice.mp3'
+            written.write_bytes(bytes(voice))
+            voice = written
+        if voice or sfx or (bed and not audio):
+            audio = mix_audio(workdir_path / 'mix.wav', DURATION, voice=voice, sfx=sfx, bed=bed)
         parts = []
         start = 0.0
         number = 0

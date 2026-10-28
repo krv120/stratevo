@@ -339,7 +339,8 @@ documented action (§8).
 
 ## 6b. The in-code kinetic renderer (default, $0 per video)
 
-The client's existing editor output — 19.73 s, 1080x1920, dark kinetic
+The client's existing editor output — now extended to a **20.60 s** runtime
+(strictly above the 20.50 s floor), 1080x1920, dark kinetic
 typography over UI mockups, seven scenes — is reproduced **deterministically in
 code** by `app/kinetic.py` (Pillow draws every frame, ffmpeg encodes it). No
 model call, no per-video charge, and the same episode always renders to the same
@@ -348,13 +349,22 @@ the 18 modular variations) and their narration, captions and hashtags.
 
 | Scene | Time | What is on screen |
 | --- | --- | --- |
-| 1 Hook | 0.00–2.50 | iPhone mockup ("PROFILE", SUBSCRIBE), blurred and green-tinted, a brush X slashed over it, the contrarian hook slammed in emerald |
-| 2 Illusions | 2.50–6.50 | Three "looks credible" tiles in a filmstrip, morphing into a ring around "PROFILE" |
-| 3 Chat | 6.50–8.00 | "FAST REPLIES" iMessage card over a white paint stroke |
-| 4 Refraction | 8.00–9.50 | "A PROFILE / CAN'T / SHOW / THINGS", one word at a time, with a fluted-glass prism band sweeping across |
-| 5 Questions | 9.50–13.00 | Three full-screen fear questions over a rotating sunburst |
-| 6 Equation | 13.00–15.80 | `LEFT ≠ RIGHT` on black; the ≠ is drawn by hand (no bundled latin subset has U+2260) |
-| 7 Sign-off | 15.80–19.73 | Chrome S (from `web/favicon.svg`), STRATEVO, "FIND. VET. VERIFY.", `stratevo.online` |
+| 1 Hook | 0.00–2.60 | iPhone mockup ("PROFILE", SUBSCRIBE), blurred and green-tinted, a brush X slashed over it, the contrarian hook slammed in emerald at 1.35 s |
+| 2 Illusions | 2.60–6.70 | Three "looks credible" tiles in a filmstrip, morphing into a ring around the episode's own left-hand word |
+| 3 Chat | 6.70–8.30 | The episode's chat heading (e.g. "FAST REPLIES") as an iMessage card over a white paint stroke |
+| 4 Refraction | 8.30–9.90 | "A PROFILE / CAN'T / SHOW / THINGS", one word at a time, with a fluted-glass prism band sweeping across |
+| 5 Questions | 9.90–13.60 | Three full-screen fear questions over a rotating sunburst (Q1 blindspot → Q2 quality → Q3 catastrophic loss) |
+| 6 Equation | 13.60–16.50 | `LEFT ≠ RIGHT` on black; the ≠ is drawn by hand (no bundled latin subset has U+2260) |
+| 7 Sign-off | 16.50–20.60 | Chrome S (from `web/favicon.svg`), STRATEVO, "FIND. VET. VERIFY.", `stratevo.online`; fades out as the 19.90 s lowpass tail rings out |
+
+**Sound.** Every episode carries a 26-layer `audio_blueprint` in
+`app/kinetic_series.py`: millisecond `start_time`, duration, scene, gain and a
+generation-ready `sfx_prompt` per layer, transients every 0.6–0.9 s and a final
+lowpass tail at **19.90 s for 0.70 s**. `app/kinetic_audio.py` synthesises that
+blueprint into a free deterministic scratch stem (pure-Python WAV, ~0.8 s of CPU)
+and `kinetic.mix_audio` sums it with the narration using ffmpeg `amix` with
+`normalize=0` and per-input `apad=whole_dur=20.600`, so a short voice track is
+padded rather than used to cut the video.
 
 **Choosing it.** In Content Studio, pick the model *Kinetic typography (rendered
 in code, $0)* — it is preselected by default (`CONTENT_RENDERER=kinetic`). Set
@@ -368,14 +378,16 @@ is true, stores the MP4 in `media_assets` exactly like a captioned fal clip, and
 marks the idea `ready_to_publish`. Scheduling and Buffer publishing are unchanged.
 
 **Cost.** Video $0. Narration is ~320 characters per episode (measured across the
-19 episodes, and `voice.fit` keeps it inside 19.7 s): **$0.031 per clip with
+19 episodes, and `voice.fit` keeps it inside 19.7 s of the 20.60 s timeline): **$0.031 per clip with
 MiniMax HD, $0.006 with Kokoro**. Six a night for 30 days (180 clips) is
 **$5.62 with MiniMax, $1.12 with Kokoro**, plus Buffer ($12 for two channels).
 Total ≈ **$13–18 a month (≈ €12–16)** — the €80 ceiling is no longer the
-constraint; CPU time is.
+constraint; CPU time is. The scratch SFX stem is synthesised locally, so the
+26-layer sound design adds **$0**; a paid SFX model would be required only to
+replace the stand-ins with recorded-quality layers.
 
-**CPU budget.** One episode is 592 frames; on this sandbox it renders and
-encodes in ~45 s at 30 fps (CRF 20, `veryfast`). A worker pass handles up to
+**CPU budget.** One episode is 618 frames; on this sandbox it renders and
+encodes in ~52 s at 30 fps (CRF 20, `veryfast`), including the scratch stem. A worker pass handles up to
 `max_caption` clips (default 2), so a Vercel function needs either a longer
 `maxDuration` or one clip per pass; a small VPS or the local worker has no such
 limit. `GET /api/admin/content/plugins` reports `kinetic.ready`, the fonts found
