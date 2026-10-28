@@ -108,8 +108,10 @@ Every narration finishes inside 19.90 s, so the lowpass tail is never clipped by
 * `exports/Arena_AI_Queue.json` — same data, `{"name": "Arena_AI_Queue", "status": "pending"}`
 * Google Sheet **Arena_AI_Queue** → <https://docs.google.com/spreadsheets/d/1MICwhQ4VFHq8891xEJgeFAHUNzVKC9jDtV9JA_iYW-I/edit>
   (tab `Queue`, header + 19 pending rows, written 28 Oct 2026)
-* `python scripts/export_kinetic_queue.py` regenerates both files; it refuses to overwrite a queue
-  that already contains non-`pending` rows.
+* `exports/kinetic-episodes-06-18.json` — the 13 full payloads the brief asked for (`episode_data`,
+  `audio_blueprint` with all 26 layers, `metadata`), 200 KB
+* `python scripts/export_kinetic_queue.py` regenerates all three files; it refuses to overwrite a
+  queue that already contains non-`pending` rows.
 
 Nothing was uploaded, scheduled or posted. Status `pending` is real: no Buffer call was made.
 

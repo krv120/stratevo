@@ -87,6 +87,15 @@ def write_json(destination, queue=None):
     return destination
 
 
+def write_episodes_json(destination, first=6, last=18):
+    """Full payloads (episode_data + audio_blueprint + metadata) for a range."""
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = [kinetic_series.episode(number) for number in range(first, last + 1)]
+    destination.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
+    return destination
+
+
 def _existing_statuses(destination):
     if not destination.exists():
         return []
@@ -101,11 +110,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', default='exports/Arena_AI_Queue.csv')
     parser.add_argument('--json', default='exports/Arena_AI_Queue.json')
+    parser.add_argument('--episodes', default='exports/kinetic-episodes-06-18.json')
     arguments = parser.parse_args(argv)
     queue = rows()
     write_csv(arguments.out, queue)
     write_json(arguments.json, queue)
-    print('Wrote %d pending episodes to %s and %s' % (len(queue), arguments.out, arguments.json))
+    write_episodes_json(arguments.episodes)
+    print('Wrote %d pending episodes to %s and %s, plus full payloads to %s'
+          % (len(queue), arguments.out, arguments.json, arguments.episodes))
     return 0
 
 
