@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import captions, kinetic, kinetic_audio, kinetic_series, video
+from app import captions, kinetic, kinetic_audio, kinetic_series, kinetic_voice, video
 from app import suppliers as s
 
 
@@ -239,6 +239,33 @@ class KineticQueueExportTests(unittest.TestCase):
             destination.write_text('episode,status\n1,published\n', encoding='utf-8')
             with self.assertRaises(SystemExit):
                 module.write_csv(destination)
+
+
+class KineticNarrationTests(unittest.TestCase):
+    """Offline narration is optional, but when installed it must be real audio."""
+
+    def test_offline_voice_is_spoken_and_padded_to_the_picture(self):
+        if not kinetic_voice.available():
+            self.skipTest('espeakng-loader is not installed')
+        with tempfile.TemporaryDirectory() as workdir:
+            info = kinetic_voice.synthesize(kinetic_series.episode(1),
+                                            Path(workdir) / 'voice.wav')
+            self.assertEqual(info['engine'], 'espeak-ng')
+            self.assertGreater(info['seconds'], 8.0)
+            self.assertLessEqual(info['seconds'], 19.6)
+            self.assertAlmostEqual(kinetic.probe(info['path'])['duration'], 20.60, delta=0.05)
+
+    def test_narration_can_be_mixed_with_the_sfx_stem(self):
+        if not kinetic_voice.available():
+            self.skipTest('espeakng-loader is not installed')
+        with tempfile.TemporaryDirectory() as workdir:
+            workdir = Path(workdir)
+            voice = kinetic_voice.synthesize(kinetic_series.episode(2), workdir / 'voice.wav')['path']
+            stem = workdir / 'sfx.wav'
+            kinetic_audio.synthesize(kinetic_series.episode(2)['audio_blueprint'], stem)
+            mixed = kinetic.mix_audio(workdir / 'mix.wav', voice=voice, sfx=[(stem, 0.0)])
+            self.assertAlmostEqual(kinetic.probe(mixed)['duration'], 20.60, delta=0.05)
+            self.assertGreater(kinetic_audio.peak(mixed), 0.2)
 
 
 class KineticSeriesTests(unittest.TestCase):

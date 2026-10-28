@@ -12,3 +12,8 @@ test-results/
 playwright-report/
 
 /public-site/
+
+# Rendered media: deliverables live outside Git, downloads are built on demand.
+/exports/videos/
+/exports/voice/
+/exports/*.zip

@@ -393,6 +393,11 @@ encodes in ~52 s at 30 fps (CRF 20, `veryfast`), including the scratch stem. A w
 limit. `GET /api/admin/content/plugins` reports `kinetic.ready`, the fonts found
 and the ffmpeg path, so a missing dependency is visible before a night runs.
 
+**Batch render.** `python scripts/render_kinetic_series.py` writes every episode
+to `exports/videos/`, with narration and the SFX stem mixed, and verifies each
+file; `scripts/serve_exports.py` serves them with byte-range support for preview
+and download. See [VIDEO-RENDERS.md](VIDEO-RENDERS.md).
+
 **Deterministic, not generative.** Every frame is a pure function of the
 timeline, so a retry produces the identical video and costs nothing. Changing
 copy means editing `app/kinetic_series.py`, not re-prompting a model.
