@@ -414,8 +414,12 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(row['source_video_url'], 'kinetic://episode-1')
         self.assertEqual(row['caption_error'], '')
         self.assertEqual(len(calls), 1)
-        # Voice is disabled in the tests, so the clip is silent but complete.
+        # Voice is disabled in the tests, so there is no narration — but the
+        # 26-layer blueprint is still mixed in as a free scratch stem.
         self.assertFalse(calls[0]['audio'])
+        self.assertEqual(len(calls[0]['sfx']), 1)
+        self.assertEqual(calls[0]['sfx'][0][1], 0.0)
+        self.assertFalse(calls[0]['bed'])
         code, served, _ = self.http('/media/' + token + '.mp4')
         self.assertEqual(code, 200)
         self.assertTrue(served.find(b'mvhd') > 0)

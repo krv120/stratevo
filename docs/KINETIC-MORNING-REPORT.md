@@ -118,7 +118,10 @@ Nothing was uploaded, scheduled or posted. Status `pending` is real: no Buffer c
 ## 5. Production state and what is genuinely left
 
 **Tested locally (real, not simulated).** 186 tests; a full 20.60 s render; the MP4's audio decoded
-and measured; the sheet written through the Google Sheets API.
+and measured; the sheet written through the Google Sheets API; and one **unpatched pipeline pass**
+(`create_series` → approve → `submit_batch` → `tick` → `media_assets`) whose stored blob probes at
+**20.60 s, 1080×1920, audio present, 2,714,504 bytes** — byte-identical to the standalone render,
+which is the determinism the renderer promises.
 
 **Not done, on purpose:**
 
