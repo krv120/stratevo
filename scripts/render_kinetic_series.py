@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / 'exports' / 'videos'
 
 
-def render_one(number, output_dir, narration='offline', stems=None, crf=20):
+def render_one(number, output_dir, narration='offline', stems=None,
+               crf=kinetic.MASTER_CRF, preset=kinetic.MASTER_PRESET,
+               audio_bitrate=kinetic.MASTER_AUDIO_BITRATE):
     """Render one episode and return a verification record."""
     data = kinetic_series.episode(number)
     target = Path(output_dir) / ('kinetic-episode-%02d.mp4' % number)
@@ -53,7 +55,8 @@ def render_one(number, output_dir, narration='offline', stems=None, crf=20):
     except Exception as error:
         voice_note = (voice_note + ' | ' if voice_note else '') + 'sfx failed: ' + str(error)[:200]
 
-    info = kinetic.render(data, target, index=number, sfx=sfx, voice=voice, crf=crf)
+    info = kinetic.render(data, target, index=number, sfx=sfx, voice=voice, crf=crf,
+                          preset=preset, audio_bitrate=audio_bitrate)
     probe = captions.probe(target)
     record = {
         'episode': number,
@@ -68,6 +71,8 @@ def render_one(number, output_dir, narration='offline', stems=None, crf=20):
         'render_seconds': round(time.time() - started, 1),
         'voice': voice_note,
         'sfx_layers': data['audio_blueprint']['layer_count'],
+        'encode': {'crf': crf, 'preset': preset, 'x264': kinetic.ENCODE_X264,
+                   'audio_bitrate': audio_bitrate},
     }
     record['ok'] = (record['seconds'] >= 20.50 and record['width'] == 1080
                     and record['height'] == 1920 and record['has_audio'])
@@ -81,7 +86,9 @@ def main(argv=None):
     parser.add_argument('--start', type=int, default=1)
     parser.add_argument('--end', type=int, default=len(kinetic_series.EPISODES))
     parser.add_argument('--narration', choices=('offline', 'off'), default='offline')
-    parser.add_argument('--crf', type=int, default=20)
+    parser.add_argument('--crf', type=int, default=kinetic.MASTER_CRF)
+    parser.add_argument('--preset', default=kinetic.MASTER_PRESET)
+    parser.add_argument('--audio-bitrate', default=kinetic.MASTER_AUDIO_BITRATE)
     parser.add_argument('--manifest', default=str(DEFAULT_OUT / 'manifest.json'))
     arguments = parser.parse_args(argv)
 
@@ -90,7 +97,8 @@ def main(argv=None):
     records = []
     for number in range(arguments.start, arguments.end + 1):
         record = render_one(number, output_dir, arguments.narration,
-                            arguments.stems, arguments.crf)
+                            arguments.stems, arguments.crf, arguments.preset,
+                            arguments.audio_bitrate)
         records.append(record)
         print('[%02d] %.2fs %dx%d audio=%s %.1fMB %s | %s'
               % (number, record['seconds'], record['width'], record['height'],

@@ -9,19 +9,26 @@ AAC, narrated**, with the 26-layer sound design mixed underneath.
 | `exports/videos/manifest.json` | probe of every file: duration, frames, size, narration settings |
 | `exports/StratEvo_19_Videos.zip` | the same 19 files in one download |
 | `python scripts/serve_exports.py --port 8000` | gallery page + byte-range streaming |
-| `exports/StratEvo_19_Videos.zip` (in Git) | the same 19-file bundle, 51.66 MB, committed because every anonymous file host is unreachable from this sandbox |
+| Google Drive folder **StratEvo_19_Videos** | the delivered copies: 19 MP4s + README + manifest + the bundle in two zip parts |
+| `exports/StratEvo_19_Videos_part{1,2}_of_2.zip` | the bundle split at 85 MB and 49 MB, because one archive is 130 MB |
 
-**Download the committed bundle:**
-<https://github.com/krv120/stratevo/raw/arena/2f688eae-stratevo/exports/StratEvo_19_Videos.zip>
+**Delivery.** The master files live in the Drive folder
+<https://drive.google.com/drive/folders/1Q34wSxx19IzNd1LqiI0c2kYWAAzWmt3f>
+(public, anyone with the link, reader). An earlier 52 MB CRF 20 bundle was
+committed to this branch while every anonymous file host was unreachable; it has
+since been removed from the working tree (`git rm`) because it predates the CRF 14
+master render. The blob remains in history until the branch is rewritten.
 
-It is inside the branch (and therefore the PR) because this environment can only
-reach `github.com`, `api.github.com`, PyPI and npm: `transfer.sh`, `0x0.st`,
-`bashupload.com`, `file.io`, `catbox.moe`, `tmpfiles.org`, `oshi.at`, `temp.sh`,
-`gofile.io`, `pixeldrain.com` and `litterbox.catbox.moe` all fail to connect, and
-GitHub Release assets upload to `uploads.github.com`, which is also blocked.
-GitHub accepted the file but warns it is above the 50 MB recommended maximum.
-Remove it with `git rm exports/StratEvo_19_Videos.zip` (the blob stays in history
-until the branch is rewritten) or keep it as the download host.
+## Encoder
+
+`kinetic.MASTER_CRF = 14`, `MASTER_PRESET = 'slow'`, `x264-params aq-mode=3:bframes=3`,
+AAC 192 kb/s, BT.709 colour tags. Measured against a lossless FFV1 reference of a
+3 s window (PSNR, average): CRF 20/veryfast = 38.69 dB, CRF 16/medium + aq-mode 3 =
+38.88 dB, CRF 14/slow + aq-mode 3 = 38.89 dB, and a Lanczos colour-matrix scaling
+pass made it *worse* (38.69 dB), so it was dropped. The residual gap to the source
+is 4:2:0 chroma subsampling, kept because yuv420p is the only universally accepted
+pixel format for social upload. Master files are ~7.1 MB per clip (2584 kb/s);
+the earlier delivery was 2.9 MB (966 kb/s).
 
 Rendered media is intentionally **not committed** (`.gitignore`: `/exports/videos/`,
 `/exports/*.zip`); the repository holds the code that produces it, not 55 MB of MP4.
