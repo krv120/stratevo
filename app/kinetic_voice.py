@@ -55,7 +55,13 @@ def configured():
     """Which neural providers have a key in the environment, in order of use."""
     if not enabled():
         return []
-    return [name for name in PREFERENCE if os.environ.get(PROVIDERS[name][0], '').strip()]
+    # KINETIC_PROVIDER=elevenlabs picks a specific voice character, e.g. the
+    # British read that suits a consultative B2B audience, even when a cheaper
+    # provider also has a key.
+    forced = os.environ.get('KINETIC_PROVIDER', '').strip().lower()
+    order = ([forced] if forced in PROVIDERS else []) + \
+            [name for name in PREFERENCE if name != forced]
+    return [name for name in order if os.environ.get(PROVIDERS[name][0], '').strip()]
 
 
 def provider():

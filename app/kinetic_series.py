@@ -550,7 +550,10 @@ def voiceover(episode_data):
     carries the hook, the three questions and the equation, which is also how the
     format reads best — the middle is where the music and foley do the work.
     """
-    hook = episode_data['hook'].rstrip('.')
+    # Sentence case matters here: the string is read by a TTS model and by a
+    # human recording the take, and a lowercase question after a pause makes both
+    # of them race into it.
+    hook = _sentence(episode_data['hook'])
     questions = ' '.join(_question_phrase(item) for item in episode_data['questions'])
     left = episode_data['left'].lower()
     right = episode_data['right'].lower()
@@ -597,8 +600,19 @@ def tts_script(episode_data):
 _BREAK_TAG = __import__('re').compile(r'<#\s*([\d.]+)\s*#>')
 
 
+def _sentence(text):
+    """Trim trailing punctuation, then make it one capitalised sentence."""
+    text = ' '.join(str(text or '').split()).rstrip('.').strip()
+    if not text:
+        return ''
+    return text[0].upper() + text[1:] + '.'
+
+
 def _question_phrase(text):
-    return text.strip().rstrip('?').lower() + '?'
+    text = ' '.join(str(text or '').split()).rstrip('?').strip()
+    if not text:
+        return ''
+    return text[0].upper() + text[1:] + '?'
 
 
 def voice_seconds(episode_data):
