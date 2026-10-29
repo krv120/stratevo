@@ -12,3 +12,26 @@ Copy `.env.example` for local development. Put production secrets into the hosti
 - `FAL_KEY`: server-side fal.ai API key for Content Studio video generation. Create an API-scoped key at https://fal.ai/dashboard/keys and add it in the hosting environment (Vercel: Project → Settings → Environment Variables → `FAL_KEY`, Production, then Redeploy). Never use a client-exposed prefix, never commit it, never paste it into a page or chat. Rotate it in the fal dashboard if exposed. `VIDEO_SPEND_LIMIT_USD`, `VIDEO_MAX_JOB_USD` and `VIDEO_JOBS_PER_HOUR` cap spend before any request is submitted. See `docs/FAL-VIDEO-STUDIO.md`.
 
 See `app/settings.py`, `app/admin_auth.py`, `app/mail_policy.py` and `app/maintenance.py` for complete compatibility settings. Do not enable obsolete external integrations. This application does not need third-party model or search credentials.
+
+## Neural narration for the kinetic series
+
+The 19 kinetic episodes need a human-sounding voice. `app/kinetic_voice.py`
+supports three providers and uses the first one with a key:
+
+| provider | env var | model | default voice | cost |
+| --- | --- | --- | --- | --- |
+| fal.ai | `FAL_KEY` | `fal-ai/minimax/speech-2.8-hd` | `Deep_Voice_Man` | $0.10 / 1k chars ≈ **$0.031 per clip** |
+| OpenAI | `OPENAI_API_KEY` | `gpt-4o-mini-tts` | `onyx` | ≈ $0.015 / 1k chars |
+| ElevenLabs | `ELEVENLABS_API_KEY` | `eleven_multilingual_v2` | `onwK4e9ZLuTAKqWW03F9` | plan-dependent |
+
+Set it as a hosting environment variable (Vercel → Settings → Environment
+Variables) or export it in the shell that runs the render. Then:
+
+```bash
+python scripts/render_kinetic_series.py --start 1 --end 1 --out exports/preview
+python scripts/render_kinetic_series.py            # all 19, only after approval
+```
+
+**Never paste a key into a chat, a commit or an issue.** Without a key the driver
+raises `VoiceError` listing the variables it wants — that is the intended
+behaviour, not a bug.

@@ -1,4 +1,4 @@
-"""Render an episode's ``audio_blueprint`` into a real scratch soundtrack.
+"""Render an episode's ``audio_blueprint`` into the music bed and foley stem.
 
 The blueprint in ``app/kinetic_series.py`` is the sound-design spec: 26 layers
 with millisecond starts and a prompt per layer. Those prompts are what a sound
@@ -140,6 +140,83 @@ def _layer_samples(kind, length, rate, seed):
         yield value
 
 
+# ---------------------------------------------------------------------------
+# the music bed: dark B2B deep house, 100 BPM in A minor, synthesised locally
+# ---------------------------------------------------------------------------
+def _music_samples(total, rate, bpm=100.0, level=0.115, seed=4242):
+    """Yield ``total`` floats of bed: kick, sub-bass, hats, pad and vinyl floor.
+
+    Deliberately cheap and deterministic. The pad is ducked on every kick so the
+    narration stays on top, and the level stays well under the voice.
+    """
+    beat = 60.0 / bpm                        # 0.6 s
+    bar = beat * 4
+    two_pi = 2.0 * math.pi
+    state = seed | 1
+    low = band = 0.0
+    root = 55.0                              # A1
+    for position in range(total):
+        moment = position / rate
+        in_beat = moment % beat
+        in_bar = moment % bar
+        bar_index = int(moment / bar)
+        value = 0.0
+
+        # kick: 4-on-the-floor, 90 Hz dropping to 48 Hz, 280 ms
+        if in_beat < 0.28:
+            sweep = 48.0 + 42.0 * math.exp(-in_beat / 0.020)
+            value += 0.85 * math.sin(two_pi * sweep * in_beat) * math.exp(-in_beat / 0.085)
+
+        # sub-bass: root, gated 8th notes, ducked while the kick is sounding
+        gate = (moment % (beat / 2)) < (beat / 2) * 0.82
+        duck = 0.35 if in_beat < 0.16 else 1.0
+        if gate:
+            note = root if (int(moment / (beat / 2)) % 8) not in (3, 6) else root * 1.335
+            value += 0.34 * duck * math.sin(two_pi * note * moment)
+
+        # closed hat on the off-beats: filtered noise, 45 ms
+        off = (moment + beat / 2) % beat
+        if off < 0.045:
+            sample, state = _noise(state)
+            band += 0.35 * (sample - band)
+            value += 0.10 * (sample - band) * math.exp(-off / 0.012)
+
+        # warm pad: two detuned sines a fifth apart, 4-bar swell, kick-ducked
+        swell = 0.55 + 0.45 * math.sin(two_pi * (bar_index % 4) / 8.0)
+        pad = (0.055 * math.sin(two_pi * 220.0 * moment)
+               + 0.045 * math.sin(two_pi * 329.6 * moment + 0.6)
+               + 0.030 * math.sin(two_pi * 440.0 * moment + 1.4))
+        value += pad * swell * duck * 0.9
+
+        # vinyl floor: quiet brown noise so silence never sounds digital
+        sample, state = _noise(state)
+        low += 0.02 * (sample - low)
+        value += 0.030 * low * 3.0
+
+        yield value * level
+
+
+def music_bed(destination, duration=None, blueprint=None, rate=RATE):
+    """Write the music bed for one episode to a 16-bit WAV."""
+    duration = float(duration or (blueprint or {}).get('duration') or
+                     kinetic_series.DURATION)
+    spec = (blueprint or {}).get('music') or kinetic_series.MUSIC
+    total = int(round(duration * rate))
+    fade_in, fade_out = 0.6, 0.9
+    buffer = array('f', bytes(4 * total))
+    for position, value in enumerate(_music_samples(total, rate,
+                                                   bpm=float(spec.get('bpm', 100)))):
+        envelope = 1.0
+        if position < fade_in * rate:
+            envelope = position / (fade_in * rate)
+        tail = (duration - fade_out) * rate
+        if position > tail:
+            envelope *= max(0.0, 1.0 - (position - tail) / (fade_out * rate))
+        buffer[position] = value * envelope
+    _write_wav(destination, buffer, rate)
+    return destination
+
+
 def synthesize(blueprint, destination, rate=RATE, layer_scale=1.0):
     """Write ``blueprint`` to a mono 16-bit WAV of the full episode length."""
     duration = float(blueprint.get('duration') or kinetic_series.DURATION)
@@ -155,6 +232,11 @@ def synthesize(blueprint, destination, rate=RATE, layer_scale=1.0):
         _mix_layer(buffer, layer, rate, layer_scale, source=buffer)
     peak = max((abs(value) for value in buffer), default=0.0)
     normalise = (1.0 / peak * 0.92) if peak > 0.92 else 1.0
+    _write_wav(destination, buffer, rate, normalise)
+    return destination
+
+
+def _write_wav(destination, buffer, rate, normalise=1.0):
     with wave.open(str(destination), 'wb') as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)

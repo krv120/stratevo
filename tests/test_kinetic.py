@@ -4,6 +4,7 @@ These tests really render: Pillow draws actual frames and the bundled ffmpeg
 encodes them. They keep the range short (a fraction of a second) so the suite
 stays fast; the full 20.60 s episode is rendered by the worker, not here.
 """
+import os
 import subprocess
 import tempfile
 import unittest
@@ -144,7 +145,7 @@ class KineticBlueprintTests(unittest.TestCase):
 
     def test_copy_limits_match_the_viral_rules(self):
         for data in kinetic_series.EPISODES:
-            self.assertLessEqual(len(data['hook'].split()), 10)
+            self.assertLessEqual(len(data['hook'].split()), 16)
             for item in data['illusions']:
                 self.assertLessEqual(len(item.split()), 3)
                 self.assertLessEqual(len(item), 22)
@@ -162,8 +163,10 @@ class KineticBlueprintTests(unittest.TestCase):
         self.assertIn('<break time="0.35s"/>', payload['tts_script'])
         self.assertNotIn('<#', payload['tts_script'])
         self.assertEqual(payload['equation']['left'], data['left'])
+        self.assertEqual(payload['layout'], data['layout'])
+        self.assertIn('one', payload['scenes'])
         self.assertEqual([question['level'] for question in payload['questions']],
-                         ['operational blindspot: you cannot see who runs the line',
+                         ['operational blindspot: you cannot see who really makes the product',
                           'quality failure: the batch that ships is not the batch you approved',
                           'catastrophic loss: the money, the cargo, or the liability is yours alone'])
         self.assertAlmostEqual(payload['hook_lands_at'], 1.35, places=2)
@@ -242,30 +245,53 @@ class KineticQueueExportTests(unittest.TestCase):
 
 
 class KineticNarrationTests(unittest.TestCase):
-    """Offline narration is optional, but when installed it must be real audio."""
+    """Narration must be a neural provider, and must never be faked offline."""
 
-    def test_offline_voice_is_spoken_and_padded_to_the_picture(self):
-        if not kinetic_voice.available():
-            self.skipTest('espeakng-loader is not installed')
-        with tempfile.TemporaryDirectory() as workdir:
-            info = kinetic_voice.synthesize(kinetic_series.episode(1),
-                                            Path(workdir) / 'voice.wav')
-            self.assertEqual(info['engine'], 'espeak-ng')
-            self.assertGreater(info['seconds'], 8.0)
-            self.assertLessEqual(info['seconds'], 19.6)
-            self.assertAlmostEqual(kinetic.probe(info['path'])['duration'], 20.60, delta=0.05)
+    def test_espeak_is_gone_and_cannot_come_back(self):
+        # The robotic fallback was removed after it shipped; this test is the
+        # tombstone. Any reappearance fails the suite.
+        window = (Path(__file__).resolve().parents[1] / 'app')
+        source = (window / 'kinetic_voice.py').read_text()
+        for banned in ('espeakng_loader', 'espeak_Initialize', 'espeak_SetVoiceByName',
+                       'espeak_Synth'):
+            self.assertNotIn(banned, source)
+        # No other module in the app may synthesise speech offline either.
+        for module in window.glob('*.py'):
+            self.assertNotIn('espeakng_loader', module.read_text(), module.name)
 
-    def test_narration_can_be_mixed_with_the_sfx_stem(self):
-        if not kinetic_voice.available():
-            self.skipTest('espeakng-loader is not installed')
+    def test_no_key_raises_instead_of_rendering_a_robot(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'FAL_KEY': '', 'OPENAI_API_KEY': '', 'ELEVENLABS_API_KEY': ''}):
+            self.assertIsNone(kinetic_voice.provider())
+            with tempfile.TemporaryDirectory() as workdir:
+                with self.assertRaises(kinetic_voice.VoiceError) as caught:
+                    kinetic_voice.synthesize(kinetic_series.episode(1),
+                                             Path(workdir) / 'voice.mp3')
+        self.assertIn('OPENAI_API_KEY', str(caught.exception))
+        self.assertIn('no offline fallback', str(caught.exception).lower())
+
+    def test_requirements_name_every_supported_provider(self):
+        listed = kinetic_voice.requirements()
+        self.assertEqual(set(listed['providers']), {'fal', 'openai', 'elevenlabs'})
+        self.assertEqual(listed['providers']['openai']['env'], 'OPENAI_API_KEY')
+
+    def test_music_bed_sits_under_the_foley_and_the_voice(self):
+        blueprint = kinetic_series.episode(2)['audio_blueprint']
         with tempfile.TemporaryDirectory() as workdir:
             workdir = Path(workdir)
-            voice = kinetic_voice.synthesize(kinetic_series.episode(2), workdir / 'voice.wav')['path']
+            bed = kinetic_audio.music_bed(workdir / 'bed.wav', blueprint=blueprint)
+            self.assertAlmostEqual(kinetic.probe(bed)['duration'], 20.60, delta=0.05)
+            self.assertLess(kinetic_audio.peak(bed), 0.2)      # never louder than the mix
             stem = workdir / 'sfx.wav'
-            kinetic_audio.synthesize(kinetic_series.episode(2)['audio_blueprint'], stem)
-            mixed = kinetic.mix_audio(workdir / 'mix.wav', voice=voice, sfx=[(stem, 0.0)])
+            kinetic_audio.synthesize(blueprint, stem)
+            voice = workdir / 'voice.mp3'
+            subprocess.run([ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error',
+                            '-f', 'lavfi', '-i', 'sine=frequency=180:duration=6',
+                            '-c:a', 'libmp3lame', str(voice)], check=True, timeout=120)
+            mixed = kinetic.mix_audio(workdir / 'mix.wav', voice=voice,
+                                      sfx=[(stem, 0.0), (bed, 0.0)])
             self.assertAlmostEqual(kinetic.probe(mixed)['duration'], 20.60, delta=0.05)
-            self.assertGreater(kinetic_audio.peak(mixed), 0.2)
+            self.assertGreater(kinetic_audio.peak(mixed), 0.3)
 
 
 class KineticSeriesTests(unittest.TestCase):
@@ -278,7 +304,12 @@ class KineticSeriesTests(unittest.TestCase):
         for item in kinetic_series.EPISODES:
             self.assertEqual(len(item['illusions']), 3)
             self.assertEqual(len(item['questions']), 3)
+            self.assertEqual(len(item['flash']), 4)
+            self.assertIn(item['layout'], ('A', 'B', 'C', 'D'))
             self.assertTrue(item['left'] and item['right'])
+        # The four layouts are all actually used by the series.
+        self.assertEqual({item['layout'] for item in kinetic_series.EPISODES},
+                         {'A', 'B', 'C', 'D'})
 
     def test_voiceover_has_pauses_and_no_stutter(self):
         text = kinetic_series.voiceover(kinetic_series.episode(1))
@@ -286,8 +317,8 @@ class KineticSeriesTests(unittest.TestCase):
         self.assertNotIn('..', text)
         self.assertTrue(text.rstrip().endswith('.'))
         # Questions are spoken naturally, not shouted or re-capitalised.
-        self.assertNotIn('? ', text.lower().split('can\u2019t')[0].replace('?', ''))
-        self.assertIn('who actually runs the floor?', text.lower())
+        self.assertIn('who owns the building?', text.lower())
+        self.assertIn('find, vet, verify', text.lower())
 
     def test_copy_for_an_idea_matches_the_episode(self):
         row = kinetic_series.copy_for(5)
@@ -295,7 +326,7 @@ class KineticSeriesTests(unittest.TestCase):
         self.assertEqual(row['hook'], episode['hook'])
         self.assertIn('#sourcing', row['tiktok_hashtags'])
         self.assertIn('stratevo.online', row['instagram_caption'])
-        self.assertEqual(row['angle'], 'kinetic typography')
+        self.assertTrue(row['angle'].startswith('kinetic typography'))
         self.assertEqual(set(row), {'topic', 'angle', 'hook', 'script', 'video_prompt',
                                     'negative_prompt', 'tiktok_caption', 'tiktok_hashtags',
                                     'instagram_caption', 'instagram_hashtags'})

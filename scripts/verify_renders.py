@@ -69,7 +69,7 @@ def main(argv=None):
                   'file': path.name, 'bytes': path.stat().st_size,
                   'sha256': sha256(path),
                   'mean_volume_db': volume,
-                  'voice': 'eSpeak NG en-us+f3 (offline)',
+                  'voice': 'per-clip neural narration (see manifest)',
                   'sfx_layers': data['audio_blueprint']['layer_count'], **info, 'ok': ok}
         records.append(record)
         if not ok:
@@ -84,7 +84,7 @@ def main(argv=None):
                'video': {'codec': 'h264 High, yuv420p, bt709', 'crf': 14,
                          'preset': 'slow', 'x264': 'aq-mode=3:bframes=3'},
                'audio': {'codec': 'aac LC', 'bitrate': '192k', 'sample_rate': 48000},
-               'narration': 'eSpeak NG (offline formant synthesiser)',
+               'narration': 'neural voice (fal MiniMax / OpenAI / ElevenLabs)',
                'episodes': records}
     Path(arguments.manifest).write_text(json.dumps(summary, indent=2), encoding='utf-8')
     print('%d/%d verified; failures: %s' % (len(records) - len(failures), len(records),

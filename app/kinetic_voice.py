@@ -1,166 +1,162 @@
-"""Offline narration: eSpeak NG through its C API, no network and no API key.
+"""Neural narration for the kinetic episodes — no formant synthesis, ever.
 
-The paid path is fal.ai MiniMax (``app/voice.py``, ~$0.031 per clip). That path
-needs ``FAL_KEY``. When it is missing — or the sandbox cannot reach fal — this
-module still produces a real spoken take for every episode, offline:
+Every path here produces a human-sounding voice from a pretrained neural model:
 
-* eSpeak NG is a formant synthesiser, not a neural model, so the read is
-  mechanical. It is a stand-in that keeps the picture and the voice in sync,
-  not a replacement for the paid voices.
-* Pauses come from the episode's own ``<#x#>`` tags, so the read lands on the
-  scene cuts exactly like the MiniMax take would.
-* The take is EQ'd and compressed with the bundled ffmpeg, then padded to the
-  full 20.60 s picture so ``mix_audio`` never has to shorten the video.
+===========  ==========================================================  ==========
+provider     what it is                                                  needs
+===========  ==========================================================  ==========
+``fal``      fal.ai MiniMax speech-2.8 HD (the pipeline's paid voice)     ``FAL_KEY``
+``openai``   OpenAI ``gpt-4o-mini-tts`` (voice ``onyx`` by default)       ``OPENAI_API_KEY``
+``elevenlabs`` ElevenLabs multilingual v2                                ``ELEVENLABS_API_KEY``
+===========  ==========================================================  ==========
 
-``espeakng_loader`` ships the library and voice data inside its wheel, so this
-works with no system packages: ``pip install espeakng-loader``.
+There is deliberately **no offline fallback**. eSpeak NG was removed after it
+shipped robotic narration: a missing key is an error the operator has to see, not
+something to paper over with a synthetic voice. ``synthesize`` raises
+:class:`VoiceError` listing what to configure instead.
+
+Only the standard library is used (``urllib``), so this adds no dependency.
 """
-import ctypes
+import json
+import os
 import re
-import subprocess
-import wave
-from array import array
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-from app import captions, kinetic_series
+from app import kinetic_series
+from app import voice as fal_voice
 
-PAUSE = re.compile(r'<#\s*([\d.]+)\s*#>')
-DEFAULT_VOICE = 'en-us+f3'
-DEFAULT_WPM = 165
+# provider -> (env var, default model, default voice)
+PROVIDERS = {
+    'fal': ('FAL_KEY', 'fal-ai/minimax/speech-2.8-hd', 'Deep_Voice_Man'),
+    'openai': ('OPENAI_API_KEY', 'gpt-4o-mini-tts', 'onyx'),
+    'elevenlabs': ('ELEVENLABS_API_KEY', 'eleven_multilingual_v2', 'onwK4e9ZLuTAKqWW03F9'),
+}
+PREFERENCE = ('fal', 'openai', 'elevenlabs')
+
+OPENAI_URL = 'https://api.openai.com/v1/audio/speech'
+ELEVEN_URL = 'https://api.elevenlabs.io/v1/text-to-speech/%s?output_format=mp3_44100_128'
 MAX_SECONDS = kinetic_series.TAIL['start_time'] - 0.3        # 19.60 s of speech
-
-_ESPEAK = None
-_CALLBACK = None
+PAUSE = re.compile(r'<#\s*([\d.]+)\s*#>')
+BREAK = re.compile(r'<break\s+time="([\d.]+)s"\s*/>')
 
 
 class VoiceError(Exception):
     """A narration failure that is safe to show to an operator."""
 
 
-def available():
-    """Is the offline engine importable?"""
-    try:
-        import espeakng_loader                       # noqa: F401
-    except Exception:
-        return False
-    return True
+def enabled():
+    """The operator's global kill switch, shared with the old fal voice path."""
+    return os.environ.get('VOICE_ENABLED', 'true').strip().lower() != 'false'
 
 
-def _engine():
-    """Initialise eSpeak NG once and return (library, samplerate, sink)."""
-    global _ESPEAK, _CALLBACK
-    if _ESPEAK is not None:
-        return _ESPEAK
-    try:
-        import espeakng_loader
-    except Exception:
-        raise VoiceError('Offline narration needs `pip install espeakng-loader`.') from None
-    library = ctypes.cdll.LoadLibrary(espeakng_loader.get_library_path())
-    data = espeakng_loader.get_data_path().encode()
-    samplerate = library.espeak_Initialize(2, 0, data, 0)      # 2 = synchronous callback
-    if samplerate <= 0:
-        raise VoiceError('eSpeak NG could not initialise its voice data.')
-    sink = {'chunks': []}
-    callback_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(ctypes.c_short),
-                                     ctypes.c_int, ctypes.c_void_p)
-
-    def collect(wav, count, events):                            # pragma: no cover - C callback
-        if count > 0:
-            sink['chunks'].append(ctypes.string_at(wav, count * 2))
-        return 0
-
-    callback = callback_type(collect)
-    library.espeak_SetSynthCallback(callback)
-    library.espeak_Synth.restype = ctypes.c_int
-    _ESPEAK = (library, samplerate, sink)
-    _CALLBACK = callback                       # keep the callback alive
-    return _ESPEAK
+def configured():
+    """Which neural providers have a key in the environment, in order of use."""
+    if not enabled():
+        return []
+    return [name for name in PREFERENCE if os.environ.get(PROVIDERS[name][0], '').strip()]
 
 
-def speak(text, voice=DEFAULT_VOICE, wpm=DEFAULT_WPM, pitch=48):
-    """Synthesise one phrase and return (samples, samplerate)."""
-    library, samplerate, sink = _engine()
-    if library.espeak_SetVoiceByName(voice.encode()) != 0:
-        raise VoiceError('Unknown eSpeak voice: ' + voice)
-    library.espeak_SetParameter(1, int(wpm), 0)                 # 1 = rate
-    library.espeak_SetParameter(3, int(pitch), 0)               # 3 = pitch
-    sink['chunks'] = []
-    payload = text.encode('utf-8')
-    if library.espeak_Synth(payload, len(payload), 0, 0, 0, 1, None, None) != 0:
-        raise VoiceError('eSpeak NG refused to synthesise the text.')
-    library.espeak_Synchronize()
-    samples = array('h')
-    for chunk in sink['chunks']:
-        samples.frombytes(chunk)
-    sink['chunks'] = []
-    return samples, samplerate
+def provider():
+    """The provider that would be used, or ``None`` when nothing is configured."""
+    available = configured()
+    return available[0] if available else None
 
 
-def _silence(seconds, samplerate):
-    return array('h', bytes(2 * int(round(seconds * samplerate))))
+def requirements():
+    """What an operator must set, for the error message and the admin panel."""
+    return {'providers': {name: {'env': env, 'model': model, 'voice': voice}
+                          for name, (env, model, voice) in PROVIDERS.items()},
+            'configured': configured(),
+            'active': provider(),
+            'note': 'No offline/robotic fallback exists: narration requires one of these keys.'}
 
 
-def take(episode_data, voice=DEFAULT_VOICE, wpm=DEFAULT_WPM):
-    """The whole episode read, with its pause tags honoured, as raw samples."""
-    library, samplerate, _ = _engine()
+def _speech_text(episode_data):
+    """The script as plain prose with real pauses spelled out for the model."""
     script = kinetic_series.voiceover(episode_data)
-    pieces, position = [], 0
-    for match in PAUSE.finditer(script):
-        spoken = script[position:match.start()].strip()
-        if spoken:
-            samples, _ = speak(spoken, voice=voice, wpm=wpm)
-            pieces.append(samples)
-        pieces.append(_silence(float(match.group(1)), samplerate))
-        position = match.end()
-    tail = script[position:].strip()
-    if tail:
-        samples, _ = speak(tail, voice=voice, wpm=wpm)
-        pieces.append(samples)
-    combined = array('h')
-    for piece in pieces:
-        combined.extend(piece)
-    return combined, samplerate
+    script = PAUSE.sub(lambda match: ' … ' if float(match.group(1)) >= 0.4 else ', ',
+                       script)
+    return ' '.join(script.split())
 
 
-def _write_raw(samples, samplerate, destination):
-    with wave.open(str(destination), 'wb') as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(samplerate)
-        handle.writeframes(samples.tobytes())
-    return destination
+def _openai(text, destination, model, voice_name):
+    key = os.environ.get('OPENAI_API_KEY', '').strip()
+    payload = json.dumps({'model': model, 'voice': voice_name, 'input': text,
+                          'response_format': 'mp3',
+                          'instructions': ('Warm, authoritative B2B narration. Calm pace, '
+                                           'crisp consonants, no upspeak, no shouting.')}).encode()
+    request = urllib.request.Request(OPENAI_URL, data=payload, method='POST', headers={
+        'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+    _download(request, destination, 'OpenAI TTS')
+    return {'engine': 'openai ' + model, 'voice': voice_name}
 
 
-def synthesize(episode_data, destination, voice=DEFAULT_VOICE, wpm=DEFAULT_WPM,
-               duration=kinetic_series.DURATION):
-    """Render one episode's narration to a padded, EQ'd 48 kHz WAV.
+def _elevenlabs(text, destination, model, voice_name):
+    key = os.environ.get('ELEVENLABS_API_KEY', '').strip()
+    voice_id = os.environ.get('ELEVENLABS_VOICE_ID', voice_name).strip()
+    payload = json.dumps({'text': text, 'model_id': model,
+                          'voice_settings': {'stability': 0.45, 'similarity_boost': 0.75,
+                                             'style': 0.25, 'use_speaker_boost': True}}).encode()
+    request = urllib.request.Request(ELEVEN_URL % voice_id, data=payload, method='POST',
+                                     headers={'xi-api-key': key, 'Content-Type': 'application/json'})
+    _download(request, destination, 'ElevenLabs')
+    return {'engine': 'elevenlabs ' + model, 'voice': voice_id}
 
-    If the read overshoots the 19.60 s speech window the rate is raised and the
-    take is re-synthesised — never time-stretched with artefacts, and never
-    allowed to run into the 19.90 s lowpass tail.
+
+def _fal(text, destination, model, voice_name):
+    """MiniMax through the pipeline's existing fal client."""
+    spoken = fal_voice.synthesize(text, model='minimax-speech-hd'
+                                  if 'minimax' in model else 'kokoro')
+    Path(destination).write_bytes(spoken['bytes'])
+    return {'engine': 'fal ' + model, 'voice': voice_name}
+
+
+def _download(request, destination, label):
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            payload = response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read()[:300].decode('utf-8', 'ignore')
+        raise VoiceError('%s refused the request (%s): %s' % (label, error.code, detail)) from None
+    except Exception:
+        raise VoiceError('%s could not be reached from this worker.' % label) from None
+    if len(payload) < 2048:
+        raise VoiceError('%s returned an empty audio file.' % label)
+    Path(destination).write_bytes(payload)
+
+
+def synthesize(episode_data, destination, duration=kinetic_series.DURATION, voice_name=None):
+    """Render one episode's narration with a neural voice.
+
+    Raises :class:`VoiceError` when no provider is configured — it never falls
+    back to a synthetic voice, because a robotic read is worse than shipping
+    nothing and approving it costs a whole render.
     """
+    active = provider()
+    if not active:
+        raise VoiceError(
+            'No neural voice provider is configured. Set one of FAL_KEY, '
+            'OPENAI_API_KEY or ELEVENLABS_API_KEY in the environment, then re-run. '
+            'There is no offline fallback: eSpeak NG was removed and must not return.')
+    env, model, default_voice = PROVIDERS[active]
+    text = _speech_text(episode_data)
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    rate = wpm
-    combined, samplerate = take(episode_data, voice=voice, wpm=rate)
-    seconds = len(combined) / float(samplerate)
-    for _ in range(2):
-        if seconds <= MAX_SECONDS:
-            break
-        rate = min(230, int(round(rate * (seconds / (MAX_SECONDS - 0.2)))))
-        combined, samplerate = take(episode_data, voice=voice, wpm=rate)
-        seconds = len(combined) / float(samplerate)
-    raw = destination.with_suffix('.raw.wav')
-    _write_raw(combined, samplerate, raw)
-    graph = ('highpass=f=85,lowpass=f=9500,acompressor=threshold=-18dB:ratio=3:attack=8:release=180,'
-             'volume=2.0,alimiter=limit=0.95,apad=whole_dur=%.3f,atrim=0:%.3f'
-             % (duration, duration))
-    command = [captions._ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error',
-               '-i', str(raw), '-af', graph, '-ar', '48000', '-ac', '1',
-               '-c:a', 'pcm_s16le', str(destination)]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
-    raw.unlink(missing_ok=True)
-    if result.returncode != 0 or not destination.exists():
-        raise VoiceError('Could not post-process the narration: ' + (result.stderr or '')[-300:])
-    return {'path': destination, 'seconds': round(seconds, 2), 'wpm': rate,
-            'voice': voice, 'engine': 'espeak-ng'}
+    voice_name = voice_name or os.environ.get('KINETIC_VOICE', default_voice)
+    handler = {'fal': _fal, 'openai': _openai, 'elevenlabs': _elevenlabs}[active]
+    info = handler(text, destination, model, voice_name)
+    seconds = _seconds(destination)
+    info.update({'path': destination, 'seconds': seconds, 'characters': len(text),
+                 'provider': active, 'model': model})
+    if seconds > MAX_SECONDS:
+        raise VoiceError('The read is %.2f s and would run into the 19.90 s tail; '
+                         'shorten the script or raise the rate.' % seconds)
+    return info
+
+
+def _seconds(path):
+    """Duration of an audio file using ffprobe (via the caption helper)."""
+    from app import captions
+    return float(captions.probe(path)['duration'])

@@ -495,6 +495,19 @@ def truncated_stroke(layer, progress):
     return result
 
 
+def panel(canvas, box, alpha=1.0, fill=(17, 17, 17), outline=(58, 58, 58), radius=30):
+    """A rounded dark card, the base chrome for layouts A, B and C."""
+    if alpha <= 0.01:
+        return
+    x, y, width, height = box
+    layer = Image.new('RGBA', (int(width), int(height)), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    draw.rounded_rectangle([0, 0, width - 1, height - 1], radius=radius,
+                           fill=fill + (int(250 * alpha),),
+                           outline=outline + (int(255 * alpha),), width=2)
+    canvas.paste(layer, (int(x), int(y)), layer)
+
+
 def chat_card(width, height):
     sprite = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(sprite)
@@ -519,6 +532,11 @@ class Episode:
         self.left = data['left']
         self.right = data['right']
         self.illusions = data['illusions']
+        # Layout drives what scenes 1-3 actually draw: A audit showcase, B cost,
+        # C founder story, D the contrarian card/glass layout.
+        self.layout = (data.get('layout') or 'D').upper()
+        self.scenes = data.get('scenes') or {}
+        self.flash = list(data.get('flash') or FLASH_WORDS)
         # Optional per-episode labels, so a tile says what the episode is about
         # while the master keeps the reference's wording.
         self.tile_title = (data.get('tile_title') or data['illusions'][0]).upper()
@@ -526,8 +544,8 @@ class Episode:
         self.equation_top = data.get('left') or ''
         self._wipe_base = None
 
-    # -- scene 1: hook + defacement ---------------------------------------
-    def scene_hook(self, canvas, t):
+    # -- scene 1 (layout D): hook + defacement -----------------------------
+    def _scene_hook_d(self, canvas, t):
         phone_w, phone_h = 470, 950
         centre = (W / 2, 760)
         enter = ease_out(ramp(t, 0.0, 0.42))
@@ -536,7 +554,10 @@ class Episode:
 
         bezel = 16
         screen_w, screen_h = phone_w - bezel * 2, phone_h - bezel * 2
-        # Screen content: night-city bokeh, status bar, PROFILE header, SUBSCRIBE.
+        # Screen content: night-city bokeh, status bar, the episode's own header
+        # and button. Nothing here is hardcoded: layout D reads its device copy
+        # from episode_data.scenes.one.
+        one = self.scenes.get('one') or {}
         screen = Image.new('RGB', (screen_w, screen_h))
         screen.paste(bokeh_screen(screen_w, screen_h, seed=9 + self.index), (0, 0))
         sdraw = ImageDraw.Draw(screen)
@@ -551,7 +572,8 @@ class Episode:
                                 outline=(200, 200, 200), width=2)
         sdraw.rectangle([screen_w - 40, 31, screen_w - 26, 41], fill=(235, 235, 235))
 
-        title = text_sprite('PROFILE', 66, WHITE, DISPLAY, 10, screen_w - 80)
+        title = text_sprite((one.get('device') or 'PROFILE').upper(), 66, WHITE,
+                            DISPLAY, 10, screen_w - 80)
         header_scrim = Image.new('RGBA', (screen_w, 190), (0, 0, 0, 0))
         hgrad = header_scrim.load()
         for y in range(190):
@@ -564,7 +586,8 @@ class Episode:
         pill = Image.new('RGBA', (250, 78), (0, 0, 0, 0))
         ImageDraw.Draw(pill).rounded_rectangle([0, 0, 250, 78], radius=39,
                                                fill=(255, 255, 255, 240))
-        pill_text = text_sprite('SUBSCRIBE', 32, (8, 8, 8), BODY, 0, 230)
+        pill_text = text_sprite((one.get('button') or 'SUBSCRIBE').upper(), 32,
+                                (8, 8, 8), BODY, 0, 230)
         pill.paste(pill_text, (int((250 - pill_text.width) / 2),
                                int((78 - pill_text.height) / 2)), pill_text)
         screen.paste(pill, (int((screen_w - 250) / 2), screen_h - 150), pill)
@@ -617,8 +640,8 @@ class Episode:
             head = fitted(self.hook, size, EMERALD, DISPLAY, 18, SAFE[2] - SAFE[0])
             paste(canvas, head, (W / 2, 1425), scale=pop(t, 1.35), alpha=ramp(t, 1.35, 1.5))
 
-    # -- scene 2: illusions filmstrip -> ring -----------------------------
-    def scene_illusions(self, t):
+    # -- scene 2 (layout D): filmstrip -> ring -----------------------------
+    def _scene_illusions_d(self, t):
         local = t - CUTS[1]
         canvas = background().copy()
         morph = ease_out(ramp(local, 1.6, 2.55))
@@ -628,7 +651,9 @@ class Episode:
         cards = []
         gap = 38
         strip_width = 3 * 300 + 2 * gap
-        for index, label in enumerate(self.illusions[:3]):
+        two = self.scenes.get('two') or {}
+        cards_copy = two.get('cards') or self.illusions[:3]
+        for index, label in enumerate(cards_copy[:3]):
             card_w, card_h = 246, 336
             sprite = Image.new('RGBA', (card_w, card_h), (0, 0, 0, 0))
             draw = ImageDraw.Draw(sprite)
@@ -655,8 +680,9 @@ class Episode:
             paste(canvas, sprite, position, scale=pop(local, 0.12 + index * 0.16),
                   alpha=min(1.0, appear * 1.4) * depth)
 
-        first_title = self.tile_title or 'GREAT PHOTOS'
-        title = text_sprite(first_title if local < 2.7 else 'LOOKS CREDIBLE', 96, WHITE,
+        first_title = (two.get('title') or self.tile_title or 'GREAT PHOTOS').upper()
+        second_title = (self.scenes.get('two') or {}).get('turn') or 'LOOKS CREDIBLE'
+        title = text_sprite(first_title if local < 2.7 else second_title.upper(), 96, WHITE,
                             DISPLAY, 10, 900)
         paste(canvas, title, (W / 2, 470), scale=pop(local, 0.05), alpha=ramp(local, 0.05, 0.2))
         if local > 2.6:
@@ -665,15 +691,17 @@ class Episode:
                   alpha=ramp(local, 2.6, 2.9))
         return canvas
 
-    # -- scene 3: fast replies chat ---------------------------------------
-    def scene_chat(self, t):
+    # -- scene 3 (layout D): chat card -------------------------------------
+    def _scene_chat_d(self, t):
         local = t - CUTS[2]
         canvas = background().copy()
         stroke = brush_stroke([(W * 0.05, 1180), (W * 0.95, 900)], 90, seed=21,
                               colour=(235, 235, 235))
         canvas.paste(stroke, (0, 0), stroke)
+        three = self.scenes.get('three') or {}
 
-        heading = text_sprite(self.chat_heading, 104, WHITE, DISPLAY, 14, 900)
+        heading = text_sprite((three.get('heading') or self.chat_heading).upper(), 104,
+                              WHITE, DISPLAY, 14, 900)
         paste(canvas, heading, (W / 2, 300), scale=pop(local, 0.0), alpha=ramp(local, 0.0, 0.12))
 
         card_w, card_h = 520, 780
@@ -684,7 +712,7 @@ class Episode:
         avatar = text_sprite('SUPPLIER', 30, (200, 200, 200), BODY, 0, 300)
         card.paste(avatar, (int((card_w - avatar.width) / 2), 54), avatar)
 
-        bubbles = self.illusions[:3]
+        bubbles = three.get('messages') or self.illusions[:3]
         y = 150
         for index, text in enumerate(bubbles):
             appear = ramp(local, 0.25 + index * 0.42, 0.4 + index * 0.42)
@@ -720,7 +748,7 @@ class Episode:
         ghost = base.filter(ImageFilter.GaussianBlur(16))
         canvas = Image.blend(canvas, ghost, 0.16)
 
-        words = ('A PROFILE', 'CAN\u2019T', 'SHOW', 'THINGS')
+        words = tuple(self.flash)
         span = (CUTS[4] - CUTS[3]) / len(words)
         index = min(len(words) - 1, int(local / span))
         into = local - index * span
@@ -853,6 +881,331 @@ class Episode:
         paste(canvas, promise, (W / 2, H / 2 + 300), scale=pop(local, 1.1, 0.4), alpha=fade_in * fade_out)
         site = text_sprite(self.cta, 64, WHITE, BODY, 12, 900)
         paste(canvas, site, (W / 2, H / 2 + 430), scale=pop(local, 1.5, 0.4), alpha=fade_in * fade_out)
+        return canvas
+
+
+    # -- scene 1-3 dispatchers ---------------------------------------------
+    def scene_hook(self, canvas, t):
+        if self.layout == 'A':
+            return self._hook_audit(canvas, t)
+        if self.layout == 'B':
+            return self._hook_bank(canvas, t)
+        if self.layout == 'C':
+            return self._hook_alert(canvas, t)
+        return self._scene_hook_d(canvas, t)
+
+    def scene_illusions(self, t):
+        if self.layout == 'A':
+            return self._scene2_radar(t)
+        if self.layout == 'B':
+            return self._scene2_bars(t)
+        if self.layout == 'C':
+            return self._scene2_missing(t)
+        return self._scene_illusions_d(t)
+
+    def scene_chat(self, t):
+        if self.layout == 'A':
+            return self._scene3_rows(t, tick=True)
+        if self.layout == 'B':
+            return self._scene3_rows(t, tick=False)
+        if self.layout == 'C':
+            return self._scene3_rows(t, tick=True)
+        return self._scene_chat_d(t)
+
+    # -- shared panel chrome ------------------------------------------------
+    def _panel(self, canvas, box, alpha=1.0, fill=(17, 17, 17), outline=(58, 58, 58)):
+        panel(canvas, box, alpha=alpha, fill=fill, outline=outline)
+
+    def _panel_title(self, canvas, text, y, size=52, colour=WHITE, alpha=1.0):
+        sprite = text_sprite(text, size, colour, DISPLAY, 8, W - 240, 0.02)
+        paste(canvas, sprite, (W / 2, y), alpha=alpha)
+
+    def _hook_caption(self, canvas, t):
+        """The spoken hook, slammed under whatever scene 1 draws."""
+        if t < 1.35:
+            return
+        scrim = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        pixels = scrim.load()
+        for y in range(int(H * 0.62), H):
+            weight = min(1.0, (y - H * 0.62) / (H * 0.16))
+            for x in range(W):
+                pixels[x, y] = (0, 0, 0, int(232 * weight))
+        canvas.paste(scrim, (0, 0), scrim)
+        size = 86 if len(self.hook) < 62 else 74
+        head = fitted(self.hook, size, EMERALD, DISPLAY, 18, SAFE[2] - SAFE[0])
+        paste(canvas, head, (W / 2, 1500), scale=pop(t, 1.35), alpha=ramp(t, 1.35, 1.5))
+
+    # -- layout A: audit dashboard -----------------------------------------
+    def _hook_audit(self, canvas, t):
+        one = self.scenes.get('one') or {}
+        enter = ease_out(ramp(t, 0.0, 0.34))
+        self._panel(canvas, (76, 292, W - 152, 540), alpha=enter)
+        self._panel_title(canvas, one.get('title', 'AUDIT REPORT'), 372, 50,
+                          alpha=ramp(t, 0.06, 0.22))
+        ref = text_sprite(one.get('ref', ''), 30, MINT, BODY, 0, W - 260)
+        paste(canvas, ref, (W / 2, 436), alpha=ramp(t, 0.18, 0.3))
+        draw = ImageDraw.Draw(canvas, 'RGBA')
+        draw.line([(120, 470), (W - 120, 470)], fill=(60, 60, 60, 255), width=2)
+        rows = one.get('rows') or []
+        for slot, (label, state) in enumerate(rows):
+            appear = ramp(t, 0.30 + slot * 0.26, 0.44 + slot * 0.26)
+            if appear <= 0:
+                continue
+            y = 556 + slot * 118
+            # Label left, verdict right, each fitted to its own half of the row so
+            # a long name can never run into the state chip.
+            text = text_sprite(label.upper(), 32, WHITE, BODY, 0, 470)
+            paste(canvas, text, (136 + text.width / 2, y), alpha=appear)
+            alarm = any(word in state for word in ('NO ', 'NOT', 'NEVER', 'MISMATCH',
+                                                   'UNVERIFIED', 'DECLINED', 'NONE',
+                                                   'PAID', 'TRADER', 'UNVERIFIED'))
+            chip = text_sprite(state.upper(), 25, (248, 113, 113) if alarm else EMERALD,
+                               BODY, 0, 330)
+            paste(canvas, chip, (W - 148 - chip.width / 2, y), alpha=appear)
+            draw.line([(136, y + 54), (W - 136, y + 54)], fill=(38, 38, 38, 255), width=2)
+        # The verdict flips from the finding to what StratEvo did about it.
+        before = one.get('before', 'FAILED')
+        after = one.get('after', 'VERIFIED')
+        flip = t >= 1.55
+        badge = after if flip else before
+        colour = EMERALD if flip else (248, 113, 113)
+        sprite = text_sprite(badge, 62, colour, DISPLAY, 16, 820, 0.04)
+        chip_w, chip_h = sprite.width + 86, sprite.height + 44
+        shape = Image.new('RGBA', (chip_w, chip_h), (0, 0, 0, 0))
+        ImageDraw.Draw(shape).rounded_rectangle(
+            [0, 0, chip_w - 1, chip_h - 1], radius=chip_h // 2,
+            fill=colour + (34,), outline=colour + (235,), width=3)
+        shape.paste(sprite, ((chip_w - sprite.width) // 2, (chip_h - sprite.height) // 2), sprite)
+        start = 1.55 if flip else 0.55
+        paste(canvas, shape, (W / 2, 1030), scale=pop(t, start, 0.30),
+              alpha=ramp(t, start, start + 0.12))
+        self._hook_caption(canvas, t)
+        return canvas
+
+    # -- layout B: bank transfer paused ------------------------------------
+    def _hook_bank(self, canvas, t):
+        one = self.scenes.get('one') or {}
+        enter = ease_out(ramp(t, 0.0, 0.34))
+        self._panel(canvas, (80, 300, W - 160, 700), alpha=enter, fill=(14, 16, 18))
+        label = text_sprite(one.get('label', 'WIRE TRANSFER'), 36, MINT, BODY, 0, 620, 0.12)
+        paste(canvas, label, (W / 2, 382), alpha=ramp(t, 0.08, 0.22))
+        draw = ImageDraw.Draw(canvas, 'RGBA')
+        draw.line([(120, 428), (W - 120, 428)], fill=(52, 52, 52, 255), width=2)
+        amount = text_sprite(one.get('amount', '$0'), 128, WHITE, DISPLAY, 14, 900)
+        paste(canvas, amount, (W / 2, 548), scale=pop(t, 0.18, 0.30),
+              alpha=ramp(t, 0.18, 0.3))
+        for slot, (caption, value) in enumerate((
+                ('BENEFICIARY', one.get('beneficiary', '')),
+                ('REFERENCE', one.get('reference', '')))):
+            y = 668 + slot * 92
+            left = text_sprite(caption, 28, (150, 150, 150), BODY, 0, 380, 0.1)
+            paste(canvas, left, (150 + left.width / 2, y), alpha=ramp(t, 0.4 + slot * 0.1, 0.55))
+            right = text_sprite(value, 30, WHITE, BODY, 0, 460)
+            paste(canvas, right, (W - 150 - right.width / 2, y), alpha=ramp(t, 0.4 + slot * 0.1, 0.55))
+        # StratEvo stamps the transfer as held before the money leaves.
+        pause_t = 1.22
+        if t >= pause_t:
+            stamp = text_sprite(one.get('pause', 'PAUSED BY STRATEVO'), 46,
+                                (248, 113, 113), DISPLAY, 14, 840, 0.06)
+            chip_w, chip_h = stamp.width + 76, stamp.height + 40
+            shape = Image.new('RGBA', (chip_w, chip_h), (0, 0, 0, 0))
+            ImageDraw.Draw(shape).rounded_rectangle(
+                [0, 0, chip_w - 1, chip_h - 1], radius=18,
+                fill=(0, 0, 0, 220), outline=(248, 113, 113, 235), width=4)
+            shape.paste(stamp, ((chip_w - stamp.width) // 2, (chip_h - stamp.height) // 2), stamp)
+            shape = shape.rotate(-3.5, expand=True, resample=Image.BICUBIC)
+            # Stamped below the card, clear of every field: the amount and the
+            # beneficiary have to stay readable while the transfer is stopped.
+            paste(canvas, shape, (W / 2, 1070), scale=pop(t, pause_t, 0.28),
+                  alpha=ramp(t, pause_t, pause_t + 0.1))
+            draw.rectangle([W - 128, 340, W - 112, 390], fill=(248, 113, 113, 235))
+            draw.rectangle([W - 152, 340, W - 136, 390], fill=(248, 113, 113, 235))
+        self._hook_caption(canvas, t)
+        return canvas
+
+    # -- layout C: supplier alert ------------------------------------------
+    def _hook_alert(self, canvas, t):
+        one = self.scenes.get('one') or {}
+        enter = ease_out(ramp(t, 0.0, 0.34))
+        messages = one.get('messages') or []
+        # Height follows the conversation: two lines of text should not sit in a
+        # 460 px empty card.
+        box = (92, 300, W - 184, 150 + len(messages) * 118)
+        self._panel(canvas, box, alpha=enter, fill=(12, 16, 14), outline=(38, 62, 48))
+        header = Image.new('RGBA', (box[2], 88), (0, 0, 0, 0))
+        ImageDraw.Draw(header).rounded_rectangle([0, 0, box[2] - 1, 87], radius=26,
+                                                 fill=(31, 82, 56, int(240 * enter)))
+        name = text_sprite(one.get('app', 'SUPPLIER'), 34, WHITE, DISPLAY, 0, 460, 0.04)
+        header.paste(name, (34, (88 - name.height) // 2), name)
+        when = text_sprite(one.get('time', 'now'), 26, MINT, BODY, 0, 200)
+        header.paste(when, (box[2] - when.width - 30, (88 - when.height) // 2), when)
+        canvas.paste(header, (box[0], box[1]), header)
+        y = box[1] + 130
+        for slot, message in enumerate(messages):
+            appear = ramp(t, 0.22 + slot * 0.36, 0.34 + slot * 0.36)
+            if appear <= 0:
+                continue
+            bubble = text_sprite(message, 34, WHITE, BODY, 0, 700)
+            bw, bh = bubble.width + 52, bubble.height + 40
+            shape = Image.new('RGBA', (bw, bh), (0, 0, 0, 0))
+            ImageDraw.Draw(shape).rounded_rectangle(
+                [0, 0, bw - 1, bh - 1], radius=26,
+                fill=(34, 44, 38, 255), outline=(52, 70, 58, 255), width=2)
+            shape.paste(bubble, (26, 20), bubble)
+            scale_y = 0.7 + 0.3 * ease_back(appear)
+            scaled = shape.resize((bw, max(1, int(bh * scale_y))), Image.LANCZOS)
+            canvas.paste(scaled, (box[0] + 34, y), scaled)
+            y += bh + 26
+        self._hook_caption(canvas, t)
+        return canvas
+
+    # -- layout A scene 2: verification radar ------------------------------
+    def _scene2_radar(self, t):
+        local = t - CUTS[1]
+        canvas = background().copy()
+        two = self.scenes.get('two') or {}
+        steps = two.get('steps') or []
+        self._panel_title(canvas, two.get('title', 'VERIFICATION'), 430, 56,
+                          alpha=ramp(local, 0.0, 0.18))
+        centre = (W / 2, 1120)
+        radius = 380
+        halo = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        hdraw = ImageDraw.Draw(halo)
+        for ring in range(len(steps) + 1):
+            size = radius * (ring + 1) / (len(steps) + 1)
+            hdraw.ellipse([centre[0] - size, centre[1] - size, centre[0] + size, centre[1] + size],
+                          outline=(52, 96, 72, 200), width=2)
+        sweep = math.radians((local * 150) % 360)
+        for step in range(26):
+            angle = sweep - step * 0.045
+            alpha = int(120 * (1 - step / 26))
+            hdraw.line([centre, (centre[0] + math.cos(angle) * radius,
+                                 centre[1] + math.sin(angle) * radius)],
+                       fill=(74, 222, 128, alpha), width=4)
+        canvas.paste(halo, (0, 0), halo)
+        shadows = ImageDraw.Draw(canvas, 'RGBA')
+        for slot, label in enumerate(steps):
+            angle = -math.pi / 2 + slot * (2 * math.pi / max(1, len(steps))) + math.radians(local * 16)
+            x = centre[0] + math.cos(angle) * radius
+            y = centre[1] + math.sin(angle) * radius
+            passed = (local * 150) % 360 > (slot * (360 / max(1, len(steps))))
+            colour = EMERALD if passed else (120, 120, 120)
+            draw = ImageDraw.Draw(canvas, 'RGBA')
+            draw.ellipse([x - 16, y - 16, x + 16, y + 16], fill=colour + (255,))
+            draw.ellipse([x - 30, y - 30, x + 30, y + 30], outline=colour + (120,), width=2)
+            label_sprite = text_sprite(label, 28, WHITE if passed else (170, 170, 170),
+                                       BODY, 0, 380)
+            offset = 84 if math.cos(angle) > -0.2 else -84
+            # Clamp inside the safe area: a long step name must never be cut by
+            # the frame edge the way "PRODUCTION LINE" was.
+            label_x = min(max(x + offset, SAFE[0] + label_sprite.width / 2),
+                          SAFE[2] - label_sprite.width / 2)
+            paste(canvas, label_sprite, (label_x, y + 62),
+                  alpha=ramp(local, 0.2 + slot * 0.2, 0.35 + slot * 0.2))
+        return canvas
+
+    # -- layout B scene 2: quote vs landed cost ----------------------------
+    def _scene2_bars(self, t):
+        local = t - CUTS[1]
+        canvas = background().copy()
+        two = self.scenes.get('two') or {}
+        bars = two.get('bars') or []
+        self._panel_title(canvas, two.get('title', 'COST'), 430, 56,
+                          alpha=ramp(local, 0.0, 0.18))
+        base_y = 1560
+        tallest = max((bar[1] for bar in bars), default=100) or 100
+        width = 300
+        gap = 90
+        total = len(bars) * width + max(0, len(bars) - 1) * gap
+        for slot, bar in enumerate(bars):
+            label, value, display = bar[:3]
+            # An optional fourth element marks the tone, so the data decides which
+            # bar is the good news instead of its position.
+            tone = (bar[3] if len(bar) > 3 else ('good' if slot == 0 else 'bad')).lower()
+            grow = ease_out(ramp(local, 0.25 + slot * 0.3, 1.1 + slot * 0.3))
+            height = int(760 * (value / tallest) * grow)
+            x = W / 2 - total / 2 + slot * (width + gap)
+            colour = EMERALD if tone in ('good', 'vetted') else (248, 113, 113)
+            draw = ImageDraw.Draw(canvas, 'RGBA')
+            draw.rounded_rectangle([x, base_y - height, x + width, base_y], radius=18,
+                                   fill=colour + (215,))
+            if height > 40:
+                value_sprite = text_sprite(display, 54, WHITE, DISPLAY, 10, width)
+                paste(canvas, value_sprite, (x + width / 2, base_y - height - 60))
+            label_sprite = text_sprite(label, 30, (200, 200, 200), BODY, 0, width + 60)
+            paste(canvas, label_sprite, (x + width / 2, base_y + 60))
+        draw = ImageDraw.Draw(canvas, 'RGBA')
+        draw.line([(110, base_y), (W - 110, base_y)], fill=(70, 70, 70, 255), width=3)
+        return canvas
+
+    # -- layout C scene 2: missing documents -------------------------------
+    def _scene2_missing(self, t):
+        local = t - CUTS[1]
+        canvas = background().copy()
+        two = self.scenes.get('two') or {}
+        items = two.get('items') or []
+        self._panel_title(canvas, two.get('title', 'MISSING'), 430, 52,
+                          alpha=ramp(local, 0.0, 0.18))
+        for slot, label in enumerate(items):
+            appear = ramp(local, 0.25 + slot * 0.34, 0.4 + slot * 0.34)
+            if appear <= 0:
+                continue
+            y = 700 + slot * 300
+            page_w, page_h = 300, 210
+            x = 170
+            page = Image.new('RGBA', (page_w, page_h), (0, 0, 0, 0))
+            pdraw = ImageDraw.Draw(page)
+            pdraw.rounded_rectangle([0, 0, page_w - 1, page_h - 1], radius=16,
+                                    fill=(24, 24, 24, 255), outline=(70, 70, 70, 255), width=3)
+            for line in range(4):
+                pdraw.rectangle([34, 44 + line * 32, page_w - 34, 56 + line * 32],
+                                fill=(60, 60, 60, 255))
+            pdraw.line([(60, 60), (page_w - 60, page_h - 40)], fill=(248, 113, 113, 235), width=9)
+            pdraw.line([(page_w - 60, 60), (60, page_h - 40)], fill=(248, 113, 113, 235), width=9)
+            page = page.rotate(-4, expand=True, resample=Image.BICUBIC)
+            paste(canvas, page, (x + page_w / 2, y), scale=pop(local, 0.25 + slot * 0.34, 0.3),
+                  alpha=appear)
+            label_sprite = text_sprite(label, 34, WHITE, BODY, 0, 520)
+            paste(canvas, label_sprite, (640, y), alpha=appear)
+        return canvas
+
+    # -- scenes 3 for A and C: checklist / verify rows ---------------------
+    def _scene3_rows(self, t, tick=True):
+        local = t - CUTS[2]
+        canvas = background().copy()
+        three = self.scenes.get('three') or {}
+        if three.get('rows'):
+            # layout B: the hidden defect maths
+            self._panel_title(canvas, three.get('title', 'MATH'), 480, 52,
+                              alpha=ramp(local, 0.0, 0.16))
+            for slot, row in enumerate(three['rows']):
+                appear = ramp(local, 0.16 + slot * 0.22, 0.3 + slot * 0.22)
+                sprite = text_sprite(str(row).upper(), 44, WHITE, BODY, 0, 900)
+                paste(canvas, sprite, (W / 2, 760 + slot * 150), alpha=appear)
+            total = three.get('total')
+            if total:
+                sprite = text_sprite(total, 72, EMERALD, DISPLAY, 16, 940, 0.03)
+                paste(canvas, sprite, (W / 2, 1420), scale=pop(local, 0.85, 0.34),
+                      alpha=ramp(local, 0.85, 1.0))
+            return canvas
+        items = three.get('items') or []
+        self._panel_title(canvas, three.get('title', 'CHECKLIST'), 420, 50,
+                          alpha=ramp(local, 0.0, 0.16))
+        self._panel(canvas, (84, 500, W - 168, 180 + 132 * len(items)),
+                    alpha=ramp(local, 0.05, 0.2))
+        for slot, label in enumerate(items):
+            appear = ramp(local, 0.16 + slot * 0.2, 0.3 + slot * 0.2)
+            if appear <= 0:
+                continue
+            y = 600 + slot * 132
+            draw = ImageDraw.Draw(canvas, 'RGBA')
+            if tick:
+                draw.line([(140, y), (162, y + 24), (206, y - 22)],
+                          fill=(74, 222, 128, int(255 * appear)), width=9)
+            else:
+                draw.ellipse([146, y - 14, 174, y + 14], fill=(248, 113, 113, int(255 * appear)))
+            sprite = text_sprite(label, 36, WHITE, BODY, 0, 700)
+            paste(canvas, sprite, (250 + sprite.width / 2, y), alpha=appear)
         return canvas
 
     # -- the timeline ------------------------------------------------------

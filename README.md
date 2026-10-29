@@ -60,10 +60,11 @@ frame is a pure function of the timeline, so an episode renders identically on
 every run and a retry costs nothing. `app/kinetic_series.py` holds the 19
 episodes (the storyboard hook plus the 18 modular variations) with their
 narration, captions and hashtags, and their 26-layer sound blueprint — which
-`app/kinetic_audio.py` renders to a free, deterministic scratch stem, so a clip
-is never silent even with no paid SFX generation. Narration has two paths: fal.ai
-MiniMax when `FAL_KEY` is set, or offline eSpeak NG (`app/kinetic_voice.py`) when
-it is not. `python scripts/render_kinetic_series.py` renders all 19 clips and
+`app/kinetic_audio.py` renders to a free, deterministic foley stem, alongside a
+free deep-house music bed, so a clip is never musically bare. Narration is neural only
+(`app/kinetic_voice.py`: fal MiniMax, OpenAI or ElevenLabs — whichever key is
+set); with no key the batch refuses to render rather than fall back to a robotic
+synthesised voice. `python scripts/render_kinetic_series.py` renders all 19 clips and
 `docs/VIDEO-RENDERS.md` documents the delivered files. Video cost is **$0**; only narration is billed
 (≈ $0.03 per clip with MiniMax HD, ≈ $0.006 with Kokoro), which puts 180 clips a
 month at roughly **€12–16 including Buffer**. The fal.ai text-to-video path is

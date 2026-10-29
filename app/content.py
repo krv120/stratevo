@@ -15,11 +15,12 @@ one.
 """
 import datetime
 import json
+import logging
 import os
 import uuid
 
 from app import (buffer_api, captions, content_library, kinetic, kinetic_audio, kinetic_series,
-                 media, video, voice)
+                 kinetic_voice, media, video, voice)
 from app import suppliers as s
 
 SCHEMA = '''
@@ -79,6 +80,8 @@ ATHENS = 'Europe/Athens'
 # Six posting moments a day: one per generated clip when the nightly job runs 6x.
 DEFAULT_SLOT_HOURS = ((9, 0), (11, 30), (14, 0), (16, 30), (19, 0), (21, 0))
 # Vercel caps a function response at 4.5 MB and Buffer downloads the whole file.
+log = logging.getLogger(__name__)
+
 MAX_SERVED_BYTES = 4_400_000
 PLAN_DAYS = 30
 
@@ -551,27 +554,36 @@ def render_kinetic(idea):
         crf = int(os.environ.get('CONTENT_CAPTION_CRF', '20'))
     except ValueError:
         crf = 20
-    if voice.configured():
+    # Narration is neural-only: fal (MiniMax), OpenAI or ElevenLabs. There is no
+    # robotic fallback — if no provider is configured the clip is rendered with
+    # music and foley only, and the reason is recorded on the idea.
+    if kinetic_voice.provider():
         try:
-            text = voice.fit(kinetic_series.voiceover(data), kinetic.DURATION)
-            spoken = voice.synthesize(text, idea_id=idea['id'])
-            narration = root / (idea['id'] + '-voice.mp3')
-            narration.write_bytes(spoken['bytes'])
-        except (voice.VoiceError, s.WorkflowError) as error:
-            # Never block the clip on the voice provider: a silent episode still
-            # ships, and the reason is recorded on the idea.
+            info = kinetic_voice.synthesize(data, root / (idea['id'] + '-voice.mp3'))
+            narration = info['path']
+            voice_note = '%s / %s' % (info['provider'], info['model'])
+        except (kinetic_voice.VoiceError, voice.VoiceError, s.WorkflowError) as error:
             voice_note = str(error)[:300]
+    else:
+        # No key is a normal state, not a per-clip error: the clip still ships with
+        # music and foley, and the admin panel reports the missing variable.
+        log.info('kinetic episode %s rendered without narration: no neural voice key',
+                 idea['id'])
     # The 26-layer blueprint is rendered to a free scratch stem, so the clip has
     # the designed transients even with no paid SFX generation and no narration.
     scratch = None
+    bed = None
     sfx = []
     if os.environ.get('CONTENT_KINETIC_SFX', 'true').strip().lower() != 'false':
         try:
             scratch = root / (idea['id'] + '-sfx.wav')
             kinetic_audio.synthesize(data['audio_blueprint'], scratch)
-            sfx = [(scratch, 0.0)]
+            bed = root / (idea['id'] + '-bed.wav')
+            kinetic_audio.music_bed(bed, blueprint=data['audio_blueprint'])
+            sfx = [(scratch, 0.0), (bed, 0.0)]
         except Exception:                       # never block a clip on the scratch track
             scratch = None
+            bed = None
             sfx = []
     try:
         info = kinetic.render(data, target, index=position, cta=cta_text(),
@@ -592,6 +604,8 @@ def render_kinetic(idea):
             narration.unlink(missing_ok=True)
         if scratch is not None:
             scratch.unlink(missing_ok=True)
+        if bed is not None:
+            bed.unlink(missing_ok=True)
     set_status(idea['id'], 'ready_to_publish', media_asset_id=asset['id'],
                source_video_url='kinetic://episode-' + str(position), caption_error=voice_note)
     return {'idea_id': idea['id'], 'asset': asset, 'video': info, 'renderer': 'kinetic',

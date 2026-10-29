@@ -7,11 +7,14 @@ clip that is short, silent or the wrong shape.
 
     python scripts/render_kinetic_series.py                 # all 19
     python scripts/render_kinetic_series.py --start 1 --end 3
-    python scripts/render_kinetic_series.py --narration off  # silent picture
+    python scripts/render_kinetic_series.py --start 1 --end 1  # one preview
+    python scripts/render_kinetic_series.py --episodes 1,5,3,13  # one per layout
+    python scripts/render_kinetic_series.py --narration silent   # no voice
 
-Narration is offline eSpeak NG (`app/kinetic_voice.py`) unless `--narration` is
-`off`; the paid MiniMax path lives in the worker (`app/voice.py`) and needs
-`FAL_KEY`.
+Narration is a neural voice from `app/kinetic_voice.py` (fal MiniMax, OpenAI or
+ElevenLabs) and is **required**: the script refuses to render a silent or robotic
+clip: with no key configured it raises `VoiceError` before drawing a frame.
+`--narration silent` is the only way to render picture + music + foley alone.
 """
 import argparse
 import json
@@ -27,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / 'exports' / 'videos'
 
 
-def render_one(number, output_dir, narration='offline', stems=None,
+def render_one(number, output_dir, narration='neural', stems=None,
                crf=kinetic.MASTER_CRF, preset=kinetic.MASTER_PRESET,
                audio_bitrate=kinetic.MASTER_AUDIO_BITRATE):
     """Render one episode and return a verification record."""
@@ -39,21 +42,23 @@ def render_one(number, output_dir, narration='offline', stems=None,
 
     voice = None
     voice_note = ''
-    if narration == 'offline':
-        try:
-            info = kinetic_voice.synthesize(data, stems / ('voice-%02d.wav' % number))
-            voice = info['path']
-            voice_note = '%s @ %d wpm, %.2f s of speech' % (info['voice'], info['wpm'], info['seconds'])
-        except Exception as error:                  # never lose the picture over the voice
-            voice_note = 'narration failed: ' + str(error)[:200]
+    if narration == 'neural':
+        # A missing key is fatal on purpose: rendering 19 robotic clips wastes
+        # more time than stopping here.
+        info = kinetic_voice.synthesize(data, stems / ('voice-%02d.mp3' % number))
+        voice = info['path']
+        voice_note = '%s / %s, %.2f s of speech' % (info['provider'], info['model'],
+                                                    info['seconds'])
+    else:
+        voice_note = 'silent (--allow-silent)'
 
     sfx = []
-    try:
-        stem = stems / ('sfx-%02d.wav' % number)
-        kinetic_audio.synthesize(data['audio_blueprint'], stem)
-        sfx = [(stem, 0.0)]
-    except Exception as error:
-        voice_note = (voice_note + ' | ' if voice_note else '') + 'sfx failed: ' + str(error)[:200]
+    stem = stems / ('sfx-%02d.wav' % number)
+    kinetic_audio.synthesize(data['audio_blueprint'], stem)
+    sfx = [(stem, 0.0)]
+    bed = stems / ('bed-%02d.wav' % number)
+    kinetic_audio.music_bed(bed, blueprint=data['audio_blueprint'])
+    sfx.append((bed, 0.0))
 
     info = kinetic.render(data, target, index=number, sfx=sfx, voice=voice, crf=crf,
                           preset=preset, audio_bitrate=audio_bitrate)
@@ -74,6 +79,7 @@ def render_one(number, output_dir, narration='offline', stems=None,
         'encode': {'crf': crf, 'preset': preset, 'x264': kinetic.ENCODE_X264,
                    'audio_bitrate': audio_bitrate},
     }
+    record['layout'] = data.get('layout')
     record['ok'] = (record['seconds'] >= 20.50 and record['width'] == 1080
                     and record['height'] == 1920 and record['has_audio'])
     return record
@@ -85,7 +91,9 @@ def main(argv=None):
     parser.add_argument('--stems', default='/tmp/stratevo-kinetic-stems')
     parser.add_argument('--start', type=int, default=1)
     parser.add_argument('--end', type=int, default=len(kinetic_series.EPISODES))
-    parser.add_argument('--narration', choices=('offline', 'off'), default='offline')
+    parser.add_argument('--episodes', default='',
+                        help='comma-separated episode numbers, overrides --start/--end')
+    parser.add_argument('--narration', choices=('neural', 'silent'), default='neural')
     parser.add_argument('--crf', type=int, default=kinetic.MASTER_CRF)
     parser.add_argument('--preset', default=kinetic.MASTER_PRESET)
     parser.add_argument('--audio-bitrate', default=kinetic.MASTER_AUDIO_BITRATE)
@@ -95,14 +103,16 @@ def main(argv=None):
     output_dir = Path(arguments.out)
     output_dir.mkdir(parents=True, exist_ok=True)
     records = []
-    for number in range(arguments.start, arguments.end + 1):
+    numbers = ([int(item) for item in arguments.episodes.split(',') if item.strip()]
+               if arguments.episodes.strip() else range(arguments.start, arguments.end + 1))
+    for number in numbers:
         record = render_one(number, output_dir, arguments.narration,
                             arguments.stems, arguments.crf, arguments.preset,
                             arguments.audio_bitrate)
         records.append(record)
-        print('[%02d] %.2fs %dx%d audio=%s %.1fMB %s | %s'
-              % (number, record['seconds'], record['width'], record['height'],
-                 record['has_audio'], record['bytes'] / 1e6,
+        print('[%02d] %s %.2fs %dx%d audio=%s %.1fMB %s | %s'
+              % (number, record['layout'], record['seconds'], record['width'],
+                 record['height'], record['has_audio'], record['bytes'] / 1e6,
                  'OK' if record['ok'] else 'FAILED', record['voice']), flush=True)
     manifest = Path(arguments.manifest)
     manifest.parent.mkdir(parents=True, exist_ok=True)

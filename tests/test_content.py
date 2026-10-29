@@ -415,9 +415,12 @@ class ContentPipelineTests(unittest.TestCase):
         self.assertEqual(row['caption_error'], '')
         self.assertEqual(len(calls), 1)
         # Voice is disabled in the tests, so there is no narration — but the
-        # 26-layer blueprint is still mixed in as a free scratch stem.
+        # 26-layer foley blueprint and the deep-house bed are still mixed in as
+        # free scratch stems.
         self.assertFalse(calls[0]['audio'])
-        self.assertEqual(len(calls[0]['sfx']), 1)
+        self.assertEqual(len(calls[0]['sfx']), 2)
+        names = sorted(Path(path).name.rsplit('-', 1)[-1] for path, _ in calls[0]['sfx'])
+        self.assertEqual(names, ['bed.wav', 'sfx.wav'])
         self.assertEqual(calls[0]['sfx'][0][1], 0.0)
         self.assertFalse(calls[0]['bed'])
         code, served, _ = self.http('/media/' + token + '.mp4')
