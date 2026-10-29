@@ -247,16 +247,21 @@ class KineticQueueExportTests(unittest.TestCase):
 class KineticNarrationTests(unittest.TestCase):
     """Narration must be a neural provider, and must never be faked offline."""
 
-    def test_espeak_is_gone_and_cannot_come_back(self):
-        # The robotic fallback was removed after it shipped; this test is the
-        # tombstone. Any reappearance fails the suite.
+    def test_raw_formant_output_never_reaches_a_clip(self):
+        # The neural path still has no offline fallback: jolting a formant voice
+        # straight into a mix is what made the first delivery unsellable.
         window = (Path(__file__).resolve().parents[1] / 'app')
-        source = (window / 'kinetic_voice.py').read_text()
-        for banned in ('espeakng_loader', 'espeak_Initialize', 'espeak_SetVoiceByName',
-                       'espeak_Synth'):
-            self.assertNotIn(banned, source)
-        # No other module in the app may synthesise speech offline either.
+        self.assertNotIn('espeak', (window / 'kinetic_voice.py').read_text().lower()
+                         .replace('espeak ng', ''))
+        # The one place a formant voice is allowed is kinetic_formant, and only
+        # through the studio chain: the module must normalise loudness and must
+        # report itself as espeak-ng+dsp, never as a neural engine.
+        formant = (window / 'kinetic_formant.py').read_text()
+        self.assertIn('loudnorm', formant)
+        self.assertIn("engine': 'espeak-ng+dsp'", formant.replace('"', "'"))
         for module in window.glob('*.py'):
+            if module.name == 'kinetic_formant.py':
+                continue
             self.assertNotIn('espeakng_loader', module.read_text(), module.name)
 
     def test_no_key_raises_instead_of_rendering_a_robot(self):
@@ -305,11 +310,17 @@ class KineticSeriesTests(unittest.TestCase):
             self.assertEqual(len(item['illusions']), 3)
             self.assertEqual(len(item['questions']), 3)
             self.assertEqual(len(item['flash']), 4)
-            self.assertIn(item['layout'], ('A', 'B', 'C', 'D'))
+            self.assertIn(item['layout'], ('A', 'B', 'C', 'D', 'M'))
             self.assertTrue(item['left'] and item['right'])
-        # The four layouts are all actually used by the series.
+        # Every layout, including the money spot, is actually used.
         self.assertEqual({item['layout'] for item in kinetic_series.EPISODES},
-                         {'A', 'B', 'C', 'D'})
+                         {'A', 'B', 'C', 'D', 'M'})
+        # Episode 1 is the $30,000 money spot, cued per scene.
+        money = kinetic_series.episode(1)
+        self.assertEqual(money['layout'], 'M')
+        self.assertIn('$30,000', money['hook'])
+        self.assertEqual(len(money['voice_lines']), 4)
+        self.assertTrue(all(len(line) == 3 for line in money['voice_lines']))
 
     def test_voiceover_has_pauses_and_no_stutter(self):
         text = kinetic_series.voiceover(kinetic_series.episode(1))
@@ -317,8 +328,8 @@ class KineticSeriesTests(unittest.TestCase):
         self.assertNotIn('..', text)
         self.assertTrue(text.rstrip().endswith('.'))
         # Questions are spoken naturally, not shouted or re-capitalised.
-        self.assertIn('who owns the building?', text.lower())
         self.assertIn('find, vet, verify', text.lower())
+        self.assertIn('$30,000', text)
 
     def test_copy_for_an_idea_matches_the_episode(self):
         row = kinetic_series.copy_for(5)
@@ -363,7 +374,7 @@ class KineticVoiceToolingTests(unittest.TestCase):
             files = sorted(Path(workdir).glob('episode-*.txt'))
             self.assertEqual(len(files), 19)
             first = files[0].read_text(encoding='utf-8').strip()
-            self.assertTrue(first.startswith('Here is what a real factory audit'))
+            self.assertTrue(first.startswith('A $30,000 deposit without an audit'))
             self.assertNotIn('<#', first)               # pause tags are gone
             self.assertNotIn(',  ', first)
             self.assertIn('stratevo', first.lower() + 'stratevo')

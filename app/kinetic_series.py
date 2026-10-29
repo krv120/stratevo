@@ -152,25 +152,30 @@ FEAR_LADDER = (
 # Scene payloads are plain dicts read by app/kinetic.py; every string a viewer
 # sees comes from here, never from the renderer.
 _EPISODES = (
-    # ---- 1-4: product and outcome showcases ------------------------------
-    ('A',
-     'Here is what a real factory audit catches before you wire $20,000.',
-     'a real factory audit',
-     {'one': {'title': 'STRATEVO AUDIT REPORT', 'ref': 'SUPPLIER #A-1841',
-              'rows': [('BUSINESS LICENSE', 'NO FACTORY SCOPE'),
-                       ('FLOOR INSPECTION', 'DECLINED TWICE'),
-                       ('SAMPLE LOCK', 'NEVER AGREED')],
-              'before': 'FAILED', 'after': 'NOT WIRED'},
-      'two': {'title': 'THREE-STEP VERIFICATION',
-              'steps': ['FACTORY OWNERSHIP', 'LAB COMPLIANCE', 'PRODUCTION LINE']},
-      'three': {'title': 'ESCROW RELEASE CHECKLIST',
-                'items': ['DEED MATCHES THE SELLER', 'AQL 2.5 PASSED ON SITE',
-                          'SAMPLE LOCK SIGNED', 'REPORT FILED TO YOU']}},
-     ['Paid badge', 'Polished deck', 'Fast quote'],
-     ['FIND.', 'VET.', 'VERIFY.', 'WIRE.'],
-     ['Who owns the building?', 'Will the line run your spec?', 'Who refunds $20,000?'],
-     'AN AUDIT', 'AN ASSUMPTION',
-     'Half of what you call a factory is a trading desk with a nice logo.'),
+    # ---- 1: the money spot. Layout M, and the only episode whose narration is
+    # scene-cued rather than generated from the hook/questions template.
+    ('M',
+     'A $30,000 deposit without an audit is a donation.',
+     'the $30,000 wire',
+     {'one': {'label': 'WIRE TRANSFER', 'amount': '$30,000', 'button': 'SEND DEPOSIT',
+              'to': 'SUPPLIER ACCOUNT', 'note': 'DEPOSIT / 30%'},
+      'two': {'title': 'THE PAPER TRAP', 'center': 'YOUR CASH',
+              'cards': ['CHEAP UNIT QUOTE', 'STAMPED INVOICE', 'BANK WIRE DETAILS']},
+      'three': {'heading': 'WIRE 30% TODAY',
+                'messages': ['Wire 30% today to lock raw material prices',
+                             'We start production tomorrow']}},
+     ['Cheap unit quote', 'Stamped invoice', 'Bank wire details'],
+     ['AN INVOICE', 'CAN\u2019T', 'PROTECT', 'YOUR CASH!'],
+     ['Does this factory actually exist?', 'Are you paying a middleman markup?',
+      'Who refunds a dead $30,000 order?'],
+     'INVOICE', 'SECURITY',
+     'An invoice means someone typed your name correctly. That is all it means.',
+     [(0.06, "A thirty-thousand-dollar deposit without a factory audit is not an "
+             "order. It's a donation.", 150),
+      (6.60, 'Wire thirty percent today.', 172),
+      (8.72, 'Does the factory actually exist? Are you paying a middleman markup? '
+             'Who refunds a dead thirty-thousand-dollar order?', 152),
+      (16.53, 'Strat Evo. Find, vet, verify.', 160)]),
     ('A',
      'How we find the actual factory hiding behind 10 middlemen.',
      'ten middlemen',
@@ -496,7 +501,7 @@ def validate(data):
     """Return a list of brief violations for one episode (empty when clean)."""
     problems = []
     layout = data.get('layout')
-    if layout not in ('A', 'B', 'C', 'D'):
+    if layout not in ('A', 'B', 'C', 'D', 'M'):
         problems.append('unknown layout %r' % layout)
     hook = data['hook'].rstrip('.')
     if len(hook.split()) > 16:
@@ -671,9 +676,23 @@ def copy_for(index):
 _SCENE_BEATS = tuple({'scene': name, 'start': begin, 'end': end} for name, begin, end in SCENES)
 
 
+def _default_voice_lines(hook, questions, layout):
+    """Cue sheet used when an episode does not describe its own.
+
+    Three blocks, each landing on the scene that carries it: the hook on scene 1,
+    the question ladder just before scene 5, and the brand line on scene 7. They
+    are separate cues so each one can be timed instead of drifting.
+    """
+    ladder = ' '.join(_question_phrase(item) for item in questions)
+    return [(0.10, _sentence(hook), 148),
+            (9.05, ladder, 145),
+            (16.62, CLOSING_VO, 155)]
+
+
 def _build(index, item):
     (layout, hook, subject, scenes, illusions, flash, questions,
-     left, right, bait) = item
+     left, right, bait) = item[:10]
+    voice_lines = item[10] if len(item) > 10 else _default_voice_lines(hook, questions, layout)
     data = {
         'index': index,
         'series': SERIES_NAME,
@@ -687,6 +706,7 @@ def _build(index, item):
         'left': left,
         'right': right,
         'comment_bait': bait,
+        'voice_lines': [tuple(line) for line in voice_lines],
         'tile_title': scenes['two'].get('title', illusions[0]).upper(),
         'chat_heading': scenes['three'].get('title', scenes['three'].get('heading', illusions[2])).upper(),
     }

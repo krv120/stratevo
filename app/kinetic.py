@@ -889,8 +889,214 @@ class Episode:
         return canvas
 
 
+    # -- layout M: the money spot --------------------------------------------
+    def _hook_money(self, canvas, t):
+        """Scene 1: a bank transfer about to leave, then a brush X over it."""
+        one = self.scenes.get('one') or {}
+        phone_w, phone_h = 500, 980
+        centre = (W / 2, 700)
+        enter = ease_out(ramp(t, 0.0, 0.42))
+        scale = 0.86 + 0.14 * enter
+
+        bezel = 16
+        screen_w, screen_h = phone_w - bezel * 2, phone_h - bezel * 2
+        screen = Image.new('RGB', (screen_w, screen_h), (9, 11, 13))
+        draw = ImageDraw.Draw(screen, 'RGBA')
+
+        # status bar
+        draw.ellipse([screen_w / 2 - 52, 14, screen_w / 2 + 52, 46], fill=(0, 0, 0))
+        clock = text_sprite('9:41', 30, (228, 228, 228), BODY, 0, 120)
+        screen.paste(clock, (34, 22), clock)
+        for column in range(4):
+            bar_h = 8 + column * 5
+            draw.rectangle([screen_w - 96 + column * 11, 44 - bar_h,
+                            screen_w - 90 + column * 11, 44], fill=(228, 228, 228))
+        draw.rounded_rectangle([screen_w - 42, 28, screen_w - 18, 44], radius=6,
+                               outline=(190, 190, 190), width=2)
+        draw.rectangle([screen_w - 40, 31, screen_w - 26, 41], fill=(228, 228, 228))
+
+        # the transfer card, laid out with a cursor so nothing can collide
+        card = [26, 110, screen_w - 26, 592]
+        draw.rounded_rectangle(card, radius=30, fill=(19, 21, 24, 255),
+                               outline=(46, 50, 55, 255), width=2)
+        inner_w = card[2] - card[0] - 40
+        inner_x = card[0] + 20
+        cursor = card[1] + 22
+        label = text_sprite(one.get('label', 'WIRE TRANSFER'), 28, MINT, BODY, 0, inner_w, 0.14)
+        screen.paste(label, (int(inner_x + (inner_w - label.width) / 2), cursor), label)
+        cursor += label.height + 2
+        amount = text_sprite(one.get('amount', '$30,000'), 92, WHITE, DISPLAY, 12, inner_w)
+        screen.paste(amount, (int(inner_x + (inner_w - amount.width) / 2), cursor), amount)
+        cursor += amount.height - 8
+        for caption, value in (('TO', one.get('to', 'SUPPLIER ACCOUNT')),
+                               ('NOTE', one.get('note', 'DEPOSIT / 30%'))):
+            left = text_sprite(caption, 22, (140, 140, 140), BODY, 0, 90, 0.12)
+            screen.paste(left, (inner_x, cursor), left)
+            right = text_sprite(value, 23, WHITE, BODY, 0, inner_w - 108, 0.04)
+            screen.paste(right, (int(card[2] - 20 - right.width), cursor), right)
+            cursor += max(left.height, right.height) + 10
+
+        # the button the money would leave through
+        pill_w, pill_h = screen_w - 100, 104
+        pill = Image.new('RGBA', (pill_w, pill_h), (0, 0, 0, 0))
+        ImageDraw.Draw(pill).rounded_rectangle([0, 0, pill_w, pill_h], radius=pill_h // 2,
+                                               fill=(255, 255, 255, 246))
+        pill_text = text_sprite(one.get('button', 'SEND DEPOSIT'), 34, (8, 8, 8), BODY,
+                                0, pill_w - 40, 0.08)
+        pill.paste(pill_text, (int((pill_w - pill_text.width) / 2),
+                               int((pill_h - pill_text.height) / 2)), pill_text)
+        screen.paste(pill, (50, 646), pill)
+
+        # the audit note underneath, so the screen tells the whole story
+        note = text_sprite('NO AUDIT ON FILE', 26, (248, 113, 113), BODY, 0, screen_w - 80, 0.1)
+        screen.paste(note, (int((screen_w - note.width) / 2), 782), note)
+
+        if t >= 1.0:
+            amount_done = ramp(t, 1.0, 1.35)
+            screen = screen.filter(ImageFilter.GaussianBlur(10 * amount_done))
+            tint = Image.new('RGB', screen.size, (6, 40, 24))
+            screen = Image.blend(screen, tint, 0.52 * amount_done)
+
+        frame = phone_frame(phone_w, phone_h, glass=True)
+        pad = 26 * 3
+        layer = Image.new('RGBA', (phone_w + pad * 2, phone_h + pad * 2), (0, 0, 0, 0))
+        layer.paste(screen.convert('RGBA'), (pad + bezel, pad + bezel))
+        layer.alpha_composite(frame, (0, 0))
+        if abs(scale - 1.0) > 0.004:
+            layer = layer.resize((int(layer.width * scale), int(layer.height * scale)),
+                                 Image.LANCZOS)
+        canvas.paste(layer, (int(centre[0] - layer.width / 2),
+                             int(centre[1] - layer.height / 2)), layer)
+
+        # Brush X at 1.00 s, hook type at 1.12 s.
+        if t >= 1.0:
+            progress = ease_out(ramp(t, 1.0, 1.42))
+            stroke = Image.alpha_composite(brush_stroke([(W * 0.18, 260), (W * 0.82, 1120)],
+                                                        46, seed=31),
+                                           brush_stroke([(W * 0.82, 260), (W * 0.18, 1120)],
+                                                        46, seed=32))
+            visible = truncated_stroke(stroke, progress)
+            canvas.paste(visible, (0, 0), visible)
+        if t >= 1.12:
+            scrim = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            pixels = scrim.load()
+            for y in range(int(H * 0.56), H):
+                weight = min(1.0, (y - H * 0.56) / (H * 0.16))
+                for x in range(W):
+                    pixels[x, y] = (0, 0, 0, int(240 * weight))
+            canvas.paste(scrim, (0, 0), scrim)
+            size = 104 if len(self.hook) < 52 else 88
+            head = fitted(self.hook, size, EMERALD, DISPLAY, 18, SAFE[2] - SAFE[0])
+            paste(canvas, head, (W / 2, 1440), scale=pop(t, 1.12), alpha=ramp(t, 1.12, 1.26))
+        return canvas
+
+    def _scene2_paper_trap(self, t):
+        """Three paper traps orbit the buyer's cash, each in its own lane."""
+        local = t - CUTS[1]
+        canvas = background().copy()
+        two = self.scenes.get('two') or {}
+        cards_copy = two.get('cards') or self.illusions[:3]
+        self._panel_title(canvas, two.get('title', 'THE PAPER TRAP'), 430, 58,
+                          alpha=ramp(local, 0.0, 0.16))
+        centre = (W / 2, 1120)
+
+        # Fixed lanes: left, upper-right, lower-right. A real orbit pulled the
+        # cards across the centre word and made all three unreadable at once.
+        slots = ((216, 1076), (864, 900), (864, 1292))
+        ring = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        rdraw = ImageDraw.Draw(ring)
+        for x, y in slots:
+            rdraw.line([centre, (x, y)], fill=(46, 96, 66, 150), width=2)
+        rdraw.ellipse([centre[0] - 250, centre[1] - 250, centre[0] + 250, centre[1] + 250],
+                      outline=(56, 112, 78, 170), width=2)
+        canvas.paste(ring, (0, 0), ring)
+
+        words = str(two.get('center', 'YOUR CASH')).upper().split() or ['YOUR', 'CASH']
+        for line_no, word in enumerate(words):
+            sprite = fitted(word, 92, EMERALD, DISPLAY, 18, 470)
+            start = 0.18 + line_no * 0.08
+            paste(canvas, sprite, (centre[0], centre[1] - 52 + line_no * 100),
+                  scale=pop(local, start, 0.34), alpha=ramp(local, start, start + 0.14))
+
+        for slot, label in enumerate(cards_copy[:3]):
+            appear = ramp(local, 0.32 + slot * 0.34, 0.46 + slot * 0.34)
+            if appear <= 0:
+                continue
+            card_w, card_h = 352, 164
+            card = Image.new('RGBA', (card_w, card_h), (0, 0, 0, 0))
+            cdraw = ImageDraw.Draw(card)
+            cdraw.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=24,
+                                    fill=(16, 18, 20, 252), outline=(62, 70, 64, 255), width=2)
+            number = text_sprite('%02d' % (slot + 1), 32, MINT, DISPLAY, 0, 90)
+            card.paste(number, (22, 16), number)
+            text = text_sprite(label.upper(), 26, WHITE, BODY, 0, card_w - 44, 0.03)
+            card.paste(text, (22, 78), text)
+            x, y = slots[slot % len(slots)]
+            float_y = math.sin(local * 1.6 + slot) * 7
+            # Cards stay inside the frame with a margin the platform chrome
+            # will not eat; the lanes are already inside it.
+            half = card_w / 2
+            x = min(max(x, half + 24), W - half - 24)
+            paste(canvas, card, (x, y + float_y), scale=pop(local, 0.32 + slot * 0.34, 0.3),
+                  alpha=appear)
+        return canvas
+
+    def _scene3_wire_chat(self, t):
+        local = t - CUTS[2]
+        canvas = background().copy()
+        three = self.scenes.get('three') or {}
+        heading = text_sprite((three.get('heading') or 'WIRE 30% TODAY').upper(), 96,
+                              WHITE, DISPLAY, 14, 940)
+        paste(canvas, heading, (W / 2, 380), scale=pop(local, 0.0), alpha=ramp(local, 0.0, 0.12))
+
+        messages = three.get('messages') or []
+        box = (96, 560, W - 192, 150 + len(messages) * 118)
+        panel(canvas, box, fill=(13, 16, 14), outline=(40, 66, 50))
+        header = Image.new('RGBA', (box[2], 84), (0, 0, 0, 0))
+        ImageDraw.Draw(header).rounded_rectangle([0, 0, box[2] - 1, 83], radius=24,
+                                                 fill=(31, 82, 56, 245))
+        name = text_sprite('SUPPLIER', 30, WHITE, DISPLAY, 0, 420, 0.06)
+        header.paste(name, (30, (84 - name.height) // 2), name)
+        when = text_sprite('now', 24, MINT, BODY, 0, 160)
+        header.paste(when, (box[2] - when.width - 26, (84 - when.height) // 2), when)
+        canvas.paste(header, (box[0], box[1]), header)
+
+        y = box[1] + 116
+        for slot, message in enumerate(messages):
+            appear = ramp(local, 0.12 + slot * 0.34, 0.26 + slot * 0.34)
+            if appear <= 0:
+                continue
+            bubble = text_sprite(message, 32, WHITE, BODY, 0, box[2] - 120)
+            bw, bh = bubble.width + 46, bubble.height + 34
+            shape = Image.new('RGBA', (bw, bh), (0, 0, 0, 0))
+            ImageDraw.Draw(shape).rounded_rectangle([0, 0, bw - 1, bh - 1], radius=22,
+                                                    fill=(34, 44, 38, 255),
+                                                    outline=(52, 70, 58, 255), width=2)
+            shape.paste(bubble, (23, 17), bubble)
+            scale_y = 0.72 + 0.28 * ease_back(appear)
+            shape = shape.resize((bw, max(1, int(bh * scale_y))), Image.LANCZOS)
+            canvas.paste(shape, (box[0] + 28, y), shape)
+            y += bh + 22
+
+        # typing indicator: three dots pulsing in step
+        dots = Image.new('RGBA', (150, 62), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(dots)
+        draw.rounded_rectangle([0, 0, 149, 61], radius=22, fill=(34, 44, 38, 255),
+                               outline=(52, 70, 58, 255), width=2)
+        for index in range(3):
+            phase = math.sin(local * 7.0 - index * 0.9)
+            radius_dot = 7 + 3 * max(0.0, phase)
+            cx = 40 + index * 34
+            draw.ellipse([cx - radius_dot, 31 - radius_dot, cx + radius_dot, 31 + radius_dot],
+                         fill=(167, 243, 208, 255))
+        if local > 0.95:
+            canvas.paste(dots, (box[0] + 28, y), dots)
+        return canvas
+
     # -- scene 1-3 dispatchers ---------------------------------------------
     def scene_hook(self, canvas, t):
+        if self.layout == 'M':
+            return self._hook_money(canvas, t)
         if self.layout == 'A':
             return self._hook_audit(canvas, t)
         if self.layout == 'B':
@@ -900,6 +1106,8 @@ class Episode:
         return self._scene_hook_d(canvas, t)
 
     def scene_illusions(self, t):
+        if self.layout == 'M':
+            return self._scene2_paper_trap(t)
         if self.layout == 'A':
             return self._scene2_radar(t)
         if self.layout == 'B':
@@ -909,6 +1117,8 @@ class Episode:
         return self._scene_illusions_d(t)
 
     def scene_chat(self, t):
+        if self.layout == 'M':
+            return self._scene3_wire_chat(t)
         if self.layout == 'A':
             return self._scene3_rows(t, tick=True)
         if self.layout == 'B':
@@ -1344,8 +1554,11 @@ def mix_audio(destination, duration=DURATION, voice=None, sfx=(), bed=False,
     if voice:
         sources.append((str(voice), 0.0, voice_gain))
     for item in sfx or ():
-        path, start = item
-        sources.append((str(path), max(0.0, float(start)), sfx_gain))
+        # (path, start) uses the shared gain; (path, start, gain) overrides it,
+        # so the music bed can sit under the foley instead of beside it.
+        path, start = item[0], item[1]
+        gain = float(item[2]) if len(item) > 2 else sfx_gain
+        sources.append((str(path), max(0.0, float(start)), gain))
     sources = [item for item in sources if Path(item[0]).exists()]
     if not sources:
         if not bed:
