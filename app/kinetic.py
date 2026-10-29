@@ -582,6 +582,10 @@ class Episode:
                 hgrad[x, y] = (0, 0, 0, hgrad_row)
         screen.paste(header_scrim, (0, 60), header_scrim)
         screen.paste(title, (int((screen_w - title.width) / 2), 96), title)
+        subtitle = (one.get('sub') or '').upper()
+        if subtitle:
+            sub = text_sprite(subtitle, 26, MINT, BODY, 0, screen_w - 120, 0.16)
+            screen.paste(sub, (int((screen_w - sub.width) / 2), 96 + title.height + 6), sub)
 
         pill = Image.new('RGBA', (250, 78), (0, 0, 0, 0))
         ImageDraw.Draw(pill).rounded_rectangle([0, 0, 250, 78], radius=39,
