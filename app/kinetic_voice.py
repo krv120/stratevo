@@ -78,6 +78,9 @@ def _speech_text(episode_data):
     script = kinetic_series.voiceover(episode_data)
     script = PAUSE.sub(lambda match: ' … ' if float(match.group(1)) >= 0.4 else ', ',
                        script)
+    # A leading pause leaves a stray comma or ellipsis; models will read it as a
+    # breath before the first word, or worse, say nothing at all.
+    script = script.lstrip(' ,.…')
     return ' '.join(script.split())
 
 
@@ -160,3 +163,43 @@ def _seconds(path):
     """Duration of an audio file using ffprobe (via the caption helper)."""
     from app import captions
     return float(captions.probe(path)['duration'])
+
+def check(text='Stratevo verifies the factory before you wire the deposit.'):
+    """Prove a neural voice is active: reachable, funded and audible.
+
+    ``python -m app.kinetic_voice --check`` prints one line per provider, then
+    synthesises a short sentence with the active one and reports its duration.
+    Run this before a batch so a dead key or a blocked host costs seconds, not
+    the whole render.
+    """
+    import tempfile
+    active = provider()
+    lines = ['voice kill switch (VOICE_ENABLED): %s' % ('on' if enabled() else 'off')]
+    for name, (env, model, voice_name) in PROVIDERS.items():
+        present = bool(os.environ.get(env, '').strip())
+        lines.append('  %-11s %-34s %-18s %-14s %s %s'
+                     % (name, model, env, voice_name,
+                        'set' if present else 'missing',
+                        '<- ACTIVE' if name == active else ''))
+    if not active:
+        lines.append('RESULT: no neural provider configured — set one of FAL_KEY, '
+                     'OPENAI_API_KEY or ELEVENLABS_API_KEY.')
+        return False, '\n'.join(lines)
+    with tempfile.TemporaryDirectory() as workdir:
+        target = Path(workdir) / 'check.mp3'
+        try:
+            info = synthesize({'hook': text, 'questions': [], 'left': 'x', 'right': 'y',
+                               'scenes': {}}, target)
+        except VoiceError as error:
+            lines.append('RESULT: %s is configured but not usable here: %s' % (active, error))
+            return False, '\n'.join(lines)
+    lines.append('RESULT: %s / %s produced %.2f s of audio — narration is live.'
+                 % (active, info['model'], info['seconds']))
+    return True, '\n'.join(lines)
+
+
+if __name__ == '__main__':
+    import sys
+    ok, report = check()
+    print(report)
+    raise SystemExit(0 if ok else 1)

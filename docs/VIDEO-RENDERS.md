@@ -55,6 +55,28 @@ silent` is the only way to render picture + music + foley with no voice.
 * The take is high-passed at 85 Hz, low-passed at 9.5 kHz, compressed and limited,
   then padded to the full 20.60 s picture.
 
+### Two ways to get the voice in
+
+1. **Render where the API is reachable** (Vercel worker, a laptop, CI):
+
+   ```bash
+   python -m app.kinetic_voice --check        # proves the key works, in seconds
+   python scripts/render_kinetic_series.py --start 1 --end 1
+   python scripts/render_kinetic_series.py                 # the other 18
+   ```
+
+2. **Supply the takes yourself** — for a machine with no route to a TTS host:
+
+   ```bash
+   python scripts/export_voice_scripts.py     # exports/voice/episode-01..19.txt
+   #   speak each file with any neural voice, save as exports/voice/voice-NN.mp3
+   python scripts/render_kinetic_series.py --voice-dir exports/voice
+   ```
+
+   `--voice-dir` probes each take and refuses one longer than 19.60 s instead of
+   time-stretching it. Nothing about the picture or the sound design changes: the
+   take is mixed exactly like a provider take.
+
 ### Why eSpeak NG is gone
 
 The first delivery used eSpeak NG (a formant synthesiser) so that no clip was

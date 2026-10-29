@@ -10,6 +10,10 @@ clip that is short, silent or the wrong shape.
     python scripts/render_kinetic_series.py --start 1 --end 1  # one preview
     python scripts/render_kinetic_series.py --episodes 1,5,3,13  # one per layout
     python scripts/render_kinetic_series.py --narration silent   # no voice
+    python scripts/render_kinetic_series.py --voice-dir exports/voice
+
+`--voice-dir` mixes hand-supplied takes (see scripts/export_voice_scripts.py)
+when the rendering machine has no route to a neural TTS API.
 
 Narration is a neural voice from `app/kinetic_voice.py` (fal MiniMax, OpenAI or
 ElevenLabs) and is **required**: the script refuses to render a silent or robotic
@@ -30,9 +34,25 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / 'exports' / 'videos'
 
 
+VOICE_SUFFIXES = ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')
+
+
+def find_take(folder, number):
+    """The narration file for one episode in a hand-supplied voice folder."""
+    if not folder:
+        return None
+    folder = Path(folder)
+    for suffix in VOICE_SUFFIXES:
+        for stem in ('voice-%02d' % number, 'episode-%02d' % number, str(number)):
+            candidate = folder / (stem + suffix)
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def render_one(number, output_dir, narration='neural', stems=None,
                crf=kinetic.MASTER_CRF, preset=kinetic.MASTER_PRESET,
-               audio_bitrate=kinetic.MASTER_AUDIO_BITRATE):
+               audio_bitrate=kinetic.MASTER_AUDIO_BITRATE, voice_dir=None):
     """Render one episode and return a verification record."""
     data = kinetic_series.episode(number)
     target = Path(output_dir) / ('kinetic-episode-%02d.mp4' % number)
@@ -42,7 +62,18 @@ def render_one(number, output_dir, narration='neural', stems=None,
 
     voice = None
     voice_note = ''
-    if narration == 'neural':
+    supplied = find_take(voice_dir, number) if narration == 'neural' else None
+    if supplied is not None:
+        # A take recorded anywhere: verified here like a provider take would be.
+        seconds = float(captions.probe(supplied)['duration'])
+        if seconds > kinetic_voice.MAX_SECONDS:
+            raise kinetic_voice.VoiceError(
+                '%s is %.2f s; the window is %.2f s. Trim the take or shorten the '
+                'script — the renderer does not time-stretch narration.'
+                % (supplied.name, seconds, kinetic_voice.MAX_SECONDS))
+        voice = supplied
+        voice_note = 'supplied take %s, %.2f s of speech' % (supplied.name, seconds)
+    elif narration == 'neural':
         # A missing key is fatal on purpose: rendering 19 robotic clips wastes
         # more time than stopping here.
         info = kinetic_voice.synthesize(data, stems / ('voice-%02d.mp3' % number))
@@ -98,6 +129,8 @@ def main(argv=None):
     parser.add_argument('--preset', default=kinetic.MASTER_PRESET)
     parser.add_argument('--audio-bitrate', default=kinetic.MASTER_AUDIO_BITRATE)
     parser.add_argument('--manifest', default=str(DEFAULT_OUT / 'manifest.json'))
+    parser.add_argument('--voice-dir', default='',
+                        help='folder of hand-supplied voice-NN.mp3 takes; skips the API')
     arguments = parser.parse_args(argv)
 
     output_dir = Path(arguments.out)
@@ -108,7 +141,7 @@ def main(argv=None):
     for number in numbers:
         record = render_one(number, output_dir, arguments.narration,
                             arguments.stems, arguments.crf, arguments.preset,
-                            arguments.audio_bitrate)
+                            arguments.audio_bitrate, arguments.voice_dir)
         records.append(record)
         print('[%02d] %s %.2fs %dx%d audio=%s %.1fMB %s | %s'
               % (number, record['layout'], record['seconds'], record['width'],

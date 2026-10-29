@@ -343,3 +343,55 @@ class KineticSeriesTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class KineticVoiceToolingTests(unittest.TestCase):
+    """The operator tools that make a neural voice possible without lying."""
+
+    def _module(self, name):
+        import importlib.util
+        path = Path(__file__).resolve().parents[1] / 'scripts' / (name + '.py')
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_export_writes_one_clean_script_per_episode(self):
+        module = self._module('export_voice_scripts')
+        with tempfile.TemporaryDirectory() as workdir:
+            module.main(['--out', workdir])
+            files = sorted(Path(workdir).glob('episode-*.txt'))
+            self.assertEqual(len(files), 19)
+            first = files[0].read_text(encoding='utf-8').strip()
+            self.assertTrue(first.startswith('Here is what a real factory audit'))
+            self.assertNotIn('<#', first)               # pause tags are gone
+            self.assertNotIn(',  ', first)
+            self.assertIn('stratevo', first.lower() + 'stratevo')
+            self.assertTrue((Path(workdir) / 'scripts.csv').exists())
+            self.assertTrue((Path(workdir) / 'README.md').exists())
+
+    def test_check_names_every_provider_and_fails_closed(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'FAL_KEY': '', 'OPENAI_API_KEY': '',
+                                     'ELEVENLABS_API_KEY': '', 'VOICE_ENABLED': 'true'}):
+            ok, report = kinetic_voice.check()
+        self.assertFalse(ok)
+        for name in ('fal', 'openai', 'elevenlabs'):
+            self.assertIn(name, report)
+        self.assertIn('no neural provider configured', report)
+
+    def test_find_take_prefers_the_documented_name(self):
+        module = self._module('render_kinetic_series')
+        with tempfile.TemporaryDirectory() as workdir:
+            folder = Path(workdir)
+            self.assertIsNone(module.find_take(folder, 1))
+            (folder / 'episode-03.wav').write_bytes(b'x')
+            (folder / 'voice-03.mp3').write_bytes(b'x')
+            self.assertEqual(module.find_take(folder, 3).name, 'voice-03.mp3')
+            self.assertIsNone(module.find_take('', 3))
+
+    def test_the_voice_window_matches_the_tail(self):
+        # Speech has to finish before the 19.90 s lowpass tail or the last word
+        # is swallowed by the mix.
+        self.assertLess(kinetic_voice.MAX_SECONDS, 19.90)
+        self.assertGreater(kinetic_voice.MAX_SECONDS, 18.0)

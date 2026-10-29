@@ -28,6 +28,7 @@ Set it as a hosting environment variable (Vercel → Settings → Environment
 Variables) or export it in the shell that runs the render. Then:
 
 ```bash
+python -m app.kinetic_voice --check       # seconds, proves the key is live
 python scripts/render_kinetic_series.py --start 1 --end 1 --out exports/preview
 python scripts/render_kinetic_series.py            # all 19, only after approval
 ```

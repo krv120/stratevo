@@ -19,32 +19,75 @@ CHUNK = 1024 * 256
 RANGE = re.compile(r'bytes=(\d*)-(\d*)')
 
 
+STYLE = ('<style>body{background:#000;color:#fff;font:15px/1.55 system-ui,sans-serif;'
+         'margin:0;padding:28px 32px}h1{font-size:26px;letter-spacing:-.03em;margin:0 0 6px}'
+         'h1 span{color:#4ADE80}.lede{color:#8a8a8a;max-width:760px;margin:0 0 26px}'
+         'h2.section{font-size:13px;letter-spacing:.14em;text-transform:uppercase;'
+         'color:#8a8a8a;border-top:1px solid #1c1c1c;padding-top:22px;margin:34px 0 16px}'
+         '.grid{display:flex;flex-wrap:wrap;gap:18px}'
+         'article{border:1px solid #262626;border-radius:14px;padding:14px;width:360px;'
+         'background:#0b0b0b}'
+         'h3{font-size:15px;margin:0 0 8px;color:#4ADE80}'
+         'h3 em{font-style:normal;color:#fff;font-weight:700}'
+         'video{width:100%;border-radius:10px;background:#000;display:block}'
+         'p{color:#a7f3d0;margin:8px 0 0;font-size:13px}'
+         'p.quote{color:#fff;font-size:13px}p small{color:#8a8a8a}'
+         'a{color:#fff}</style>')
+
+LAYOUT_NAMES = {'A': 'audit dashboard + radar + checklist',
+                'B': 'wire transfer + cost bars + defect maths',
+                'C': 'supplier alert + missing docs + verify list',
+                'D': 'kinetic card + cards + chat'}
+
+
+def _records(folder):
+    manifest = ROOT / folder / 'manifest.json'
+    if not manifest.exists():
+        return []
+    return json.loads(manifest.read_text(encoding='utf-8'))['episodes']
+
+
+def _card(item, folder, badge=''):
+    name = Path(item['file']).name
+    layout = (item.get('layout') or '').upper()
+    title = ('%s · %s' % (badge or '%02d' % item['episode'],
+                          html.escape(LAYOUT_NAMES.get(layout, 'kinetic'))))
+    hook = html.escape(item.get('hook') or '')
+    return ('<article><h3>%s</h3>'
+            '<video controls preload="metadata" playsinline src="/%s/%s"></video>'
+            '<p class="quote">%s</p>'
+            '<p>%s s · %dx%d · %.1f MB · <small>%s</small></p>'
+            '<p><a href="/%s/%s" download>Download MP4</a></p></article>'
+            % (title, folder, name, hook, item['seconds'], item['width'],
+               item['height'], item['bytes'] / 1e6,
+               html.escape(item.get('voice') or 'silent'), folder, name))
+
+
 def gallery():
-    manifest = ROOT / 'videos' / 'manifest.json'
-    records = []
-    if manifest.exists():
-        records = json.loads(manifest.read_text(encoding='utf-8'))['episodes']
-    cards = '\n'.join(
-        '<article><h2>%02d · %s</h2>'
-        '<video controls preload="metadata" src="/videos/%s"></video>'
-        '<p>%s s · %dx%d · %.1f MB · %s</p>'
-        '<p><a href="/videos/%s" download>Download MP4</a></p></article>'
-        % (item['episode'], html.escape(item['hook']), Path(item['file']).name,
-           item['seconds'], item['width'], item['height'], item['bytes'] / 1e6,
-           html.escape(item.get('voice') or 'silent'),
-           Path(item['file']).name) for item in records)
-    zip_link = ''
-    if (ROOT / 'StratEvo_19_Videos.zip').exists():
-        zip_link = '<p><a href="/StratEvo_19_Videos.zip" download>Download all 19 (zip)</a></p>'
-    return ('<!doctype html><meta charset="utf-8"><title>StratEvo · 19 kinetic episodes</title>'
-            '<style>body{background:#000;color:#fff;font:16px/1.5 system-ui,sans-serif;'
-            'margin:0;padding:32px}h1{font-size:28px;letter-spacing:-.03em}'
-            'article{border:1px solid #262626;border-radius:14px;padding:16px;margin:0 0 20px}'
-            'h2{font-size:17px;margin:0 0 10px;color:#4ADE80}'
-            'video{width:100%;max-width:340px;border-radius:10px;background:#0D0D0D}'
-            'p{color:#A7F3D0;margin:8px 0}'
-            'a{color:#fff}</style><h1>StratEvo · 19 kinetic episodes (20.60 s)</h1>'
-            + zip_link + cards).encode('utf-8')
+    preview = _records('preview')
+    videos = _records('videos')
+    sections = []
+    if preview:
+        badges = {'A': 'LAYOUT A', 'B': 'LAYOUT B', 'C': 'LAYOUT C', 'D': 'LAYOUT D'}
+        sections.append('<h2 class="section">Review build · one clip per layout · '
+                        'music + foley, no narration yet</h2><div class="grid">%s</div>'
+                        % '\n'.join(_card(item, 'preview',
+                                           badges.get((item.get('layout') or '').upper(),
+                                                      '%02d' % item['episode']))
+                                     for item in preview))
+    if videos:
+        sections.append('<h2 class="section">Delivered masters · 19 episodes · '
+                        'replaced once a neural voice is configured</h2><div class="grid">%s</div>'
+                        % '\n'.join(_card(item, 'videos') for item in videos))
+    if not sections:
+        sections.append('<p>Nothing rendered yet. Run '
+                        '<code>python scripts/render_kinetic_series.py</code>.</p>')
+    return ('<!doctype html><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>StratEvo · kinetic series</title>' + STYLE +
+            '<h1>StratEvo<span>.</span> kinetic series</h1>'
+            '<p class="lede">1080×1920 · 30 fps · 20.60 s. Find. Vet. Verify. → '
+            'stratevo.online</p>' + ''.join(sections)).encode('utf-8')
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -98,7 +141,10 @@ class Handler(BaseHTTPRequestHandler):
                 status = 206
         length = end - start + 1
         self.send_response(status)
-        self.send_header('Content-Type', 'video/mp4' if target.suffix == '.mp4' else 'application/octet-stream')
+        mime = {'.mp4': 'video/mp4', '.png': 'image/png', '.json': 'application/json',
+                '.txt': 'text/plain; charset=utf-8'}.get(target.suffix,
+                                                        'application/octet-stream')
+        self.send_header('Content-Type', mime)
         self.send_header('Accept-Ranges', 'bytes')
         self.send_header('Content-Length', str(length))
         self.send_header('Cache-Control', 'public, max-age=3600')
