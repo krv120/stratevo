@@ -81,7 +81,7 @@ def render_one(number, output_dir, narration='neural', stems=None,
         voice_note = '%s / %s, %.2f s of speech' % (info['provider'], info['model'],
                                                     info['seconds'])
     else:
-        voice_note = 'silent (--allow-silent)'
+        voice_note = 'silent (--narration silent)'
 
     sfx = []
     stem = stems / ('sfx-%02d.wav' % number)

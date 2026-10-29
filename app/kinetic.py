@@ -666,7 +666,7 @@ class Episode:
             draw.rounded_rectangle([14, 14, card_w - 14, 82], radius=16, fill=(26, 26, 26, 255))
             number = text_sprite('%02d' % (index + 1), 40, MINT, DISPLAY, 0, 200)
             sprite.paste(number, (int((card_w - number.width) / 2), 26), number)
-            label_sprite = text_sprite(label.upper(), 32, WHITE, BODY, 0, card_w - 26)
+            label_sprite = text_sprite(label.upper(), 36, WHITE, BODY, 0, card_w - 30)
             sprite.paste(label_sprite, (int((card_w - label_sprite.width) / 2),
                                         int(card_h * 0.58)), label_sprite)
             appear = pop(local, 0.12 + index * 0.16)
@@ -681,8 +681,9 @@ class Episode:
             depth = 1.0 - 0.16 * morph * (0.5 + 0.5 * math.sin(angle))
             cards.append((index, sprite, (x, y), appear, depth))
         for index, sprite, position, appear, depth in cards:
+            # Depth dims the back cards only slightly: the label is the message.
             paste(canvas, sprite, position, scale=pop(local, 0.12 + index * 0.16),
-                  alpha=min(1.0, appear * 1.4) * depth)
+                  alpha=min(1.0, appear * 1.4) * max(0.9, depth))
 
         first_title = (two.get('title') or self.tile_title or 'GREAT PHOTOS').upper()
         second_title = (self.scenes.get('two') or {}).get('turn') or 'LOOKS CREDIBLE'

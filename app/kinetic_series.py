@@ -354,7 +354,7 @@ _EPISODES = (
     ('D',
      'A professional profile is not a professional supplier.',
      'a professional profile',
-     {'one': {'device': 'PROFILE', 'sub': 'VERIFIED BADGE', 'button': 'SUBSCRIBE'},
+     {'one': {'device': 'SUPPLIER PAGE', 'sub': 'TOP RATED', 'button': 'MESSAGE'},
       'two': {'title': 'LOOKS CREDIBLE',
               'cards': ['Verified badge', 'Great photos', 'Fast replies']},
       'three': {'heading': 'FAST REPLIES',
