@@ -88,10 +88,14 @@ def speak(text, destination, voice=DEFAULT_VOICE, wpm=DEFAULT_WPM, pitch=DEFAULT
     lib = _library()
     if lib.espeak_SetVoiceByName(voice.encode()) != 0:
         raise RuntimeError('espeak-ng has no voice %r' % voice)
+    # The parameter ids come from speak_lib.h: 1 rate, 2 volume, 3 pitch,
+    # 4 range, 5 word gap. Getting them out of order is silent - the read keeps
+    # its default pitch and no error is raised.
     lib.espeak_SetParameter(1, int(wpm), 0)          # espeakRATE
-    lib.espeak_SetParameter(2, int(pitch), 0)        # espeakPITCH
-    lib.espeak_SetParameter(3, 120, 0)               # espeakRANGE, slightly wide
-    lib.espeak_SetParameter(4, 0, 0)                 # no word gap
+    lib.espeak_SetParameter(2, 140, 0)               # espeakVOLUME
+    lib.espeak_SetParameter(3, int(pitch), 0)        # espeakPITCH
+    lib.espeak_SetParameter(4, 32, 0)                # espeakRANGE, flatter delivery
+    lib.espeak_SetParameter(5, 0, 0)                 # espeakGAP, no inserted pauses
     global _buffer
     _buffer = bytearray()
     payload = text.encode('utf-8') + b'\0'

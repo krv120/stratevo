@@ -170,12 +170,17 @@ _EPISODES = (
       'Who refunds a dead $30,000 order?'],
      'INVOICE', 'SECURITY',
      'An invoice means someone typed your name correctly. That is all it means.',
-     [(0.06, "A thirty-thousand-dollar deposit without a factory audit is not an "
-             "order. It's a donation.", 150),
-      (6.60, 'Wire thirty percent today.', 172),
-      (8.72, 'Does the factory actually exist? Are you paying a middleman markup? '
-             'Who refunds a dead thirty-thousand-dollar order?', 152),
-      (16.53, 'Strat Evo. Find, vet, verify.', 160)]),
+     # Seven scenes, six cues: the script's own wording is longer than 20.6 s at
+     # a conversational pace (26.9 s of speech), so the read is timed to the cuts
+     # and the scene-4 line carries "invoice can't protect your cash" once instead
+     # of twice. Ends at 19.53 s, inside the 19.90 s tail.
+     [(0.08, "A $30,000 deposit without an audit is not an order. It's a donation.", 150),
+      (4.55, 'Cheap quote. Stamped invoice. Urgent wire.', 180),
+      (7.62, "An invoice can't protect your cash.", 176),
+      (9.40, 'Does the factory actually exist? Are you paying a middleman markup? '
+             'Who refunds a dead $30,000 order?', 174),
+      (15.70, 'An invoice is not security.', 182),
+      (17.10, 'Strat Evo. Find, vet, verify.', 182)]),
     ('A',
      'How we find the actual factory hiding behind 10 middlemen.',
      'ten middlemen',
