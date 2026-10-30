@@ -1,0 +1,165 @@
+FFFFFFFFFFFFFFFFFFFF
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/supplier')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/marketplace')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/methodology')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/assessment')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/inquiry')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/privacy')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/cookies')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/terms')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/admin')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/supplier/account')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 25, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/site.css')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/market.js')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/ui.js')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/navigation.js')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/storage.js')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/favicon.svg')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/fonts/inter-latin.woff2')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite) (path='/images/stratevo-social.jpg')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 32, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(status, 200)
+AssertionError: 404 != 200
+
+======================================================================
+FAIL: test_all_public_routes_and_assets_through_rewrite (test_vercel_routing.VercelRoutingTests.test_all_public_routes_and_assets_through_rewrite)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stratevo/tests/test_vercel_routing.py", line 34, in test_all_public_routes_and_assets_through_rewrite
+    self.assertEqual(self.http('/api/health')[0], 200)
+AssertionError: 404 != 200
+
+----------------------------------------------------------------------
+Ran 1 test in 0.539s
+
+FAILED (failures=20)

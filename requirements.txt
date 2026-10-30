@@ -1,0 +1,8 @@
+psycopg[binary]==3.2.10
+
+Pillow==12.3.0
+
+# Static ffmpeg 7.0.2 (x86_64 linux) used to burn ASS subtitles into vertical
+# clips inside the worker. It ships libass but no drawtext filter, so captions
+# are ASS Dialogue events rather than drawtext chains.
+imageio-ffmpeg==0.6.0

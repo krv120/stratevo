@@ -1,0 +1,2 @@
+'use strict';
+(()=>{const select=document.getElementById('comparison-lens');if(!select)return;function update(){document.querySelectorAll('[data-scope]').forEach(p=>p.classList.toggle('comparison-highlight',p.dataset.scope===select.value));document.getElementById('comparison-status').textContent='Highlighting '+select.options[select.selectedIndex].text.toLowerCase()+'. All examples are fictional; no ranking or supplier recommendation is made.';}select.addEventListener('change',update);update();})();

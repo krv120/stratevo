@@ -1,0 +1,80 @@
+{
+  "version": 2,
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{app/**,web/**,migrations/**}",
+      "excludeFiles": "{private/**,tests/**,validation/**,*.md,RELEASE-SCREENSHOTS.html,MANIFEST.json,.env*,.git/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/((?!index\\.py$).*)",
+      "destination": "/api/index.py?__stratevo_path=/api/$1"
+    },
+    {
+      "source": "/supplier/account",
+      "destination": "/supplier-account.html"
+    }
+  ],
+  "framework": null,
+  "buildCommand": "python3 scripts/build_static.py",
+  "outputDirectory": "public-site",
+  "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/home",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/supplier-account",
+      "destination": "/supplier/account",
+      "permanent": true
+    },
+    {
+      "source": "/rfq",
+      "destination": "/assessment",
+      "permanent": true
+    },
+    {
+      "source": "/supplier-portal",
+      "destination": "/supplier/account",
+      "permanent": true
+    },
+    {
+      "source": "/business-information",
+      "destination": "/terms#operator",
+      "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; media-src 'self' https://*.fal.media https://storage.googleapis.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
+        }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/jobs/content-tick",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}
